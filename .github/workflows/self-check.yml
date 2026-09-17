@@ -1,0 +1,24 @@
+name: Plugin self-check
+
+# The plugin must pass what it demands of others: manifests, skill front matter,
+# every relative link, the syntax of scripts and templates.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  # The job id must be ASCII: GitHub Actions accepts only [A-Za-z_][A-Za-z0-9_-]*
+  # and anything else fails the whole file before a single step runs.
+  # The human-readable label goes in the name field.
+  self-check:
+    name: Self-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: bash scripts/check-plugin.sh

@@ -1,0 +1,17 @@
+{
+  "name": "frontend-quality",
+  "version": "1.0.0",
+  "description": "Frontend standard: how visual decisions get made, mechanical layout checks in a real browser, a catalogue of real failure modes, and performance analysis attributed to the function that ate the budget.",
+  "author": {
+    "name": "23ag1"
+  },
+  "keywords": [
+    "frontend",
+    "design",
+    "ui",
+    "ux",
+    "accessibility",
+    "performance",
+    "testing"
+  ]
+}

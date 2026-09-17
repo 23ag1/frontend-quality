@@ -1,0 +1,85 @@
+{
+  "_comment": "Copy into the project root as .uiverify.json. The file's presence switches the Stop hook on: a turn will not close while the check is red.",
+  "_checkPaths": "Scope of the text-level bans. In a monorepo the new frontend sits next to legacy code with hundreds of violations; a gate over the whole tree would be red always. Field absent — the whole tree is checked.",
+  "checkPaths": [
+    "src"
+  ],
+  "urls": [
+    "http://localhost:3000/",
+    "http://localhost:3000/pricing/"
+  ],
+  "_scenarios": "Modules that drive the app into the state worth checking (login, data, open dialogs). The contract is documented at the top of scripts/lib/session.mjs. Keep heavy scenarios out of the gate: it must answer in seconds.",
+  "scenarios": [
+    {
+      "name": "cart with items",
+      "module": "e2e/scenarios/cart.mjs"
+    }
+  ],
+  "breakpoints": [
+    {
+      "name": "low",
+      "width": 390,
+      "height": 640
+    },
+    {
+      "name": "mobile",
+      "width": 390,
+      "height": 844
+    },
+    {
+      "name": "tablet",
+      "width": 768,
+      "height": 1024
+    },
+    {
+      "name": "laptop",
+      "width": 1280,
+      "height": 800
+    },
+    {
+      "name": "desktop",
+      "width": 1440,
+      "height": 900
+    },
+    {
+      "name": "wide",
+      "width": 1920,
+      "height": 1080
+    }
+  ],
+  "outDir": ".uiverify-out",
+  "baselineDir": ".uiverify-baseline",
+  "overlapSelector": "h1, h2, h3, h4, p, li, button, a, label, span[class], td, th",
+  "_ignoreOverlap": "Deliberate overlaps: display type over text, collages. A selector plus a comment saying why it is intended.",
+  "ignoreOverlap": [
+    ".hero__display",
+    "[data-decorative]"
+  ],
+  "ignoreConsole": [
+    "Failed to load resource: net::ERR_BLOCKED_BY_CLIENT"
+  ],
+  "_ignoreDiff": "Masks for visual regression: live data (clocks, counters, avatars) is painted over before the shot, otherwise \"the clock ticked\" reads as breakage.",
+  "ignoreDiff": [
+    "[data-clock]",
+    "[data-counter]"
+  ],
+  "diffThreshold": 0.1,
+  "diffTolerance": 8,
+  "_profile": "Performance budgets: product (a working tool) or landing (a promo page).",
+  "profile": "product",
+  "throttle": 4,
+  "skipAxe": false,
+  "_lexicon": "Internal terms that must not appear in visible text. When set, they replace the built-in defaults, so any interface language works.",
+  "lexicon": [
+    "backend",
+    "endpoint",
+    "SKU",
+    "payload",
+    "staging"
+  ],
+  "lexiconFields": [
+    "user_id",
+    "product_id",
+    "order_id"
+  ]
+}

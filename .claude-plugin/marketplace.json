@@ -1,0 +1,13 @@
+{
+  "name": "frontend-quality",
+  "owner": {
+    "name": "23ag1"
+  },
+  "plugins": [
+    {
+      "name": "frontend-quality",
+      "source": "./",
+      "description": "Frontend standard: how visual decisions get made, mechanical layout checks in a real browser, a catalogue of real failure modes, and performance analysis attributed to the function that ate the budget."
+    }
+  ]
+}

@@ -1,0 +1,97 @@
+# CI TEMPLATE. Copy into .github/workflows/, fix the paths and commands.
+#
+# The split is deliberate: deterministic checks block the pull request, flaky
+# ones only warn. A check that fails every other run for runner reasons will be
+# switched off on the first busy day.
+
+name: Frontend quality
+
+on:
+  pull_request:
+    paths:
+      - 'src/**' # ← your directories
+      - '.uiverify.json'
+  workflow_dispatch:
+
+concurrency:
+  group: frontend-quality-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Path to the scripts. Keep the kit in the repository (as here) or install it
+  # from ~/.claude — in that case install.sh does the placement step.
+  SK: docs/frontend-kit/claude/skills/frontend-quality/scripts
+
+jobs:
+  # Job ids must be ASCII: anything else fails the file before a step runs.
+  forbidden:
+    name: Bans
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # No dependencies, no browser: plain source analysis, seconds.
+      - run: bash "$SK/check-forbidden.sh" src
+
+  tests:
+    name: Lint and tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+
+  layout:
+    name: Layout and performance
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Start the production build
+        # Measurements only on a production build: in development mode the
+        # framework is several times slower and the numbers lie.
+        run: |
+          npm ci
+          npm run build
+          npm run start -- --port 3011 &
+          npx wait-on -t 90000 http://127.0.0.1:3011/
+
+      - name: Install the checks
+        run: |
+          cd "$SK/.."
+          npm install --no-audit --no-fund
+          npx --yes playwright install --with-deps chromium
+
+      - name: Layout, accessibility, console
+        run: node "$SK/verify-ui.mjs" --config .uiverify.json
+
+      - name: States and touch targets
+        run: |
+          node "$SK/verify-states.mjs" --url http://127.0.0.1:3011/
+          node "$SK/verify-tap.mjs" --url http://127.0.0.1:3011/
+
+      - name: Performance
+        # Numbers on a shared runner drift: the same code on a loaded machine
+        # gives a different result. Observe the spread first, then decide whether
+        # to block. The artifact is saved either way.
+        continue-on-error: true
+        run: node "$SK/verify-perf.mjs" --url http://127.0.0.1:3011/ --throttle 4 --json perf.json
+
+      - name: Save screenshots and reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: uiverify
+          path: |
+            .uiverify-out/**
+            perf.json
+          retention-days: 7
