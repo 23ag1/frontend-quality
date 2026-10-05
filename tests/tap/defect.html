@@ -1,0 +1,52 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tap gestures: defects</title>
+<style>
+  body { margin: 0; font: 16px/1.4 system-ui; color: #111; background: #fff; }
+  header { padding: 12px 16px; }
+  button { font: inherit; min-height: 48px; min-width: 48px; padding: 8px 16px; border: 1px solid #bbb; border-radius: 8px; background: #f4f4f4; }
+  #list { height: 520px; overflow-y: auto; margin: 0 16px; border: 1px solid #ddd; }
+  #list button { display: block; width: 100%; margin: 4px 0; text-align: left; }
+  .backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, .3); }
+  .menu { position: absolute; left: 8px; top: 8px; width: 240px; background: #fff; border-radius: 12px; padding: 8px; }
+  .menu button { display: block; width: 100%; }
+</style>
+<header>
+  <!-- DEFECT 1: a long press opens a menu right under the finger and swallows
+       nothing. The tail of the gesture (contextmenu, click) reaches the menu. -->
+  <button id="hold">Hold for actions</button>
+</header>
+<!-- DEFECT 2: list buttons react to click only. A tap right after a swipe is spent
+     on stopping the glide, so the first tap does nothing. -->
+<div id="list"></div>
+<script>
+  const list = document.getElementById('list');
+  for (let i = 1; i <= 40; i += 1) {
+    const b = document.createElement('button');
+    b.append(`Dish ${i} `);
+    const count = document.createElement('span');
+    count.append('0');
+    b.append(count);
+    b.addEventListener('click', () => {
+      count.firstChild.nodeValue = String(Number(count.firstChild.nodeValue) + 1);
+    });
+    list.append(b);
+  }
+
+  const hold = document.getElementById('hold');
+  let timer = null;
+  hold.addEventListener('touchstart', () => {
+    timer = setTimeout(openMenu, 450);
+  }, { passive: true });
+  hold.addEventListener('touchend', () => clearTimeout(timer));
+
+  function openMenu() {
+    const backdrop = document.createElement('div');
+    backdrop.className = 'backdrop';
+    backdrop.innerHTML = '<div class="menu"><button id="remove">Remove dish</button><button>Repeat</button></div>';
+    backdrop.addEventListener('click', () => backdrop.remove());
+    backdrop.addEventListener('contextmenu', () => backdrop.setAttribute('data-native-menu', 'shown'));
+    document.body.append(backdrop);
+  }
+</script>

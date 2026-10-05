@@ -23,13 +23,20 @@
  * Usage:
  *   node verify-tap.mjs --url http://localhost:3000
  *   node verify-tap.mjs --scenario ./perf/order-screen.mjs --limit 40
+ *   node verify-tap.mjs --scenario ./perf/order-screen.mjs --gestures
+ *
+ * --gestures runs three real gestures with live handlers instead (see below):
+ * a short tap, a 650 ms hold, and a swipe with momentum followed by a quick tap.
+ *
+ * Touch goes through CDP, so both modes need Chromium. On another engine the
+ * target is reported as "skipped on <engine>" and does not fail the run.
  *
  * Exit: 0 — clean, 1 — violations found, 2 — could not run.
  */
 
 import { mkdirSync } from 'node:fs';
 import { resolve, join } from 'node:path';
-import { parseArgs, loadConfig, resolveTargets, closeQuietly } from './lib/session.mjs';
+import { parseArgs, loadConfig, resolveTargets, closeQuietly, openCDP } from './lib/session.mjs';
 
 const INTERACTIVE =
   'a[href], button, [role="button"], [role="tab"], [role="menuitem"], input:not([type="hidden"]), select, textarea, [tabindex]:not([tabindex="-1"])';
@@ -159,72 +166,412 @@ async function tapAt(cdp, page, point) {
 
 /**
  * Gesture mode: reproduces the mechanics of the most frequent failure of all —
- * a tap that disappears or fires twice.
+ * a tap that disappears, fires twice or lands on someone else.
  *
- * The cause, found once by experiment: if the DOM changes under the finger
- * between `touchstart` and `touchend` (lazily mounted swipe pills, a re-render
- * from a gesture handler), the browser does NOT synthesise `click` — and the tap
- * vanishes silently. On desktop the mouse never goes through `touchstart`, hence
- * "perfect on a laptop, needs two taps on a phone".
+ * Three gestures, each with its own known failure:
+ *
+ * 1. TAP (touch held 90 ms). If the DOM changes under the finger between
+ *    `touchstart` and `touchend` (lazily mounted swipe pills, a re-render from a
+ *    gesture handler), the browser does NOT synthesise `click` — the tap vanishes
+ *    silently. On desktop the mouse never goes through `touchstart`, hence
+ *    "perfect on a laptop, needs two taps on a phone".
+ *
+ * 2. HOLD (touch held 650 ms). A long-press menu opens under a finger that is
+ *    still down. On release the browser synthesises `click` at the same point; it
+ *    lands on the backdrop or an item of the fresh menu and closes or fires it.
+ *    Android also sends `contextmenu` to whatever is under the finger when the
+ *    long press fires — that is the node that has just appeared. Headless
+ *    Chromium does not send `contextmenu` for a CDP touch, so the check sends it
+ *    itself, to the element under the finger, exactly as Android would.
+ *    The fix is to swallow both tails at the document level for the gesture that
+ *    opened the menu.
+ *
+ * 3. SWIPE, THEN TAP within 200 ms. While a list is still gliding after a swipe,
+ *    the browser treats the next touch as "stop the scroll" and synthesises no
+ *    `click`. A button revealed by the swipe needs two taps. The fix is to act on
+ *    `touchend` for such buttons (short, finger stationary, started on the
+ *    button) and suppress the click that may follow.
  *
  * Application handlers are NOT swallowed here: otherwise there is nothing to
  * observe. So this run does change application state — hence a separate flag.
+ * When a gesture adds or removes nodes or navigates, the target is driven back
+ * to its initial state before the next probe.
  */
 const INSTALL_GESTURE_WATCH = () => {
-  window.__gesture = { mutations: 0, clicks: 0, watching: false };
+  const fresh = {
+    mutations: 0,
+    structural: 0,
+    clicks: 0,
+    watching: false,
+    pressed: null,
+    clickProbe: null,
+    clickLabel: null,
+    clickForeign: false,
+    clickReached: false,
+    mutationsAtClick: 0,
+    menus: [],
+  };
+  if (window.__gesture) {
+    Object.assign(window.__gesture, fresh);
+    return;
+  }
+  window.__gesture = fresh;
+  const label = (el) =>
+    el ? (el.getAttribute('aria-label') || el.textContent || el.tagName.toLowerCase()).trim().replace(/\s+/g, ' ').slice(0, 40) : null;
+  // "Foreign" = neither the pressed element, nor inside it, nor one of its
+  // ancestors. An ancestor (body, the list) is where a tap goes when nothing
+  // claims it — that is not someone else's action.
+  const foreign = (el) => {
+    const pressed = window.__gesture.pressed;
+    if (!el || !pressed) return false;
+    return !pressed.contains(el) && !el.contains(pressed);
+  };
   const observer = new MutationObserver((records) => {
-    if (!window.__gesture.watching) return;
-    window.__gesture.mutations += records.length;
+    const g = window.__gesture;
+    if (!g.watching) return;
+    g.mutations += records.length;
+    for (const r of records) if (r.type === 'childList') g.structural += 1;
   });
-  observer.observe(document.body, { childList: true, subtree: true, attributes: true });
+  observer.observe(document.body, { childList: true, subtree: true, attributes: true, characterData: true });
   window.addEventListener(
     'click',
     (event) => {
-      window.__gesture.clicks += 1;
+      const g = window.__gesture;
+      g.clicks += 1;
       const el = event.target instanceof Element ? event.target : null;
       // Where the click landed matters as much as whether it arrived at all.
-      // A ghost click after a long press used to land on the backdrop of the menu
-      // that had just opened and closed it instantly: the user never got to press.
-      window.__gesture.clickProbe = el ? el.closest('[data-tap-probe]')?.getAttribute('data-tap-probe') ?? null : null;
-      window.__gesture.clickLabel = el
-        ? (el.getAttribute('aria-label') || el.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 40)
-        : null;
+      g.clickProbe = el ? el.closest('[data-tap-probe]')?.getAttribute('data-tap-probe') ?? null : null;
+      g.clickLabel = label(el);
+      if (!foreign(el)) return;
+      // A click on a foreign node is a defect only if the application let it
+      // through and it did something: a menu that swallows the tail at the
+      // document level, or a backdrop that ignores a click it did not see start,
+      // is the correct fix and stays silent.
+      g.clickForeign = true;
+      g.mutationsAtClick = g.mutations;
+      const mark = () => {
+        g.clickReached = true;
+      };
+      el.addEventListener('click', mark);
+      setTimeout(() => el.removeEventListener('click', mark), 0);
+    },
+    { capture: true }
+  );
+  window.addEventListener(
+    'contextmenu',
+    (event) => {
+      const g = window.__gesture;
+      if (!g.watching) return;
+      const el = event.target instanceof Element ? event.target : null;
+      const record = { label: label(el), foreign: foreign(el), reached: false, prevented: false, synthetic: !event.isTrusted };
+      g.menus.push(record);
+      // Did the event get as far as the node itself? A listener added to the
+      // target during the capture phase runs when dispatch reaches it, and not at
+      // all if the application stopped the event higher up.
+      const mark = () => {
+        record.reached = true;
+      };
+      if (el) el.addEventListener('contextmenu', mark);
+      setTimeout(() => {
+        record.prevented = event.defaultPrevented;
+        if (el) el.removeEventListener('contextmenu', mark);
+      }, 0);
     },
     { capture: true }
   );
 };
 
-async function probeGesture(cdp, page, item) {
-  const point = { x: Math.round(item.x + item.width / 2), y: Math.round(item.y + item.height / 2) };
-  await page.evaluate(() => {
-    window.__gesture.mutations = 0;
-    window.__gesture.clicks = 0;
-    window.__gesture.watching = true;
-  });
+const HOLD_MS = 650;
+const SWIPE_TAP_LIMIT_MS = 200;
 
+async function startWatch(page, item) {
+  await page.evaluate((probe) => {
+    const g = window.__gesture;
+    Object.assign(g, {
+      mutations: 0,
+      structural: 0,
+      clicks: 0,
+      clickProbe: null,
+      clickLabel: null,
+      clickForeign: false,
+      clickReached: false,
+      mutationsAtClick: 0,
+      menus: [],
+      pressed: probe === null ? null : document.querySelector(`[data-tap-probe="${probe}"]`),
+      watching: true,
+    });
+  }, item ? item.probe : null);
+}
+
+async function stopWatch(page) {
+  return page.evaluate(() => {
+    const g = window.__gesture;
+    g.watching = false;
+    return {
+      clicks: g.clicks,
+      mutations: g.mutations,
+      structural: g.structural,
+      clickProbe: g.clickProbe ?? null,
+      clickLabel: g.clickLabel ?? null,
+      clickForeign: g.clickForeign,
+      clickActed: g.clickForeign && g.clickReached && g.mutations > g.mutationsAtClick,
+      menus: g.menus.map((m) => ({ ...m })),
+    };
+  });
+}
+
+const centreOf = (item) => ({ x: Math.round(item.x + item.width / 2), y: Math.round(item.y + item.height / 2) });
+
+async function probeTap(cdp, page, item) {
+  const point = centreOf(item);
+  await startWatch(page, item);
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [point] });
   await page.waitForTimeout(90);
   const duringGesture = await page.evaluate(() => window.__gesture.mutations);
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
   await page.waitForTimeout(320);
+  return { duringGesture, ...(await stopWatch(page)) };
+}
 
-  const after = await page.evaluate(() => {
-    window.__gesture.watching = false;
-    return {
-      clicks: window.__gesture.clicks,
-      mutations: window.__gesture.mutations,
-      clickProbe: window.__gesture.clickProbe ?? null,
-      clickLabel: window.__gesture.clickLabel ?? null,
+async function probeHold(cdp, page, item) {
+  const point = centreOf(item);
+  await startWatch(page, item);
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [point] });
+  await page.waitForTimeout(HOLD_MS);
+  // Android fires contextmenu at the element under the finger when the long
+  // press is recognised. Headless Chromium does not; send it the same way.
+  await page.evaluate(({ x, y }) => {
+    if (window.__gesture.menus.length) return;
+    const el = document.elementFromPoint(x, y);
+    if (!el) return;
+    el.dispatchEvent(
+      new MouseEvent('contextmenu', { bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y, button: 2 })
+    );
+  }, point);
+  await page.waitForTimeout(20);
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await page.waitForTimeout(320);
+  return stopWatch(page);
+}
+
+/** Scroll containers worth swiping: tall enough, really scrollable, with controls inside. */
+async function findScrollers(page, selector) {
+  return page.evaluate((selector) => {
+    const visibleControl = (el, box) => {
+      const r = el.getBoundingClientRect();
+      return r.width >= 8 && r.height >= 8 && r.bottom > box.top && r.top < box.bottom;
     };
-  });
+    const out = [];
+    const candidates = [document.scrollingElement, ...document.querySelectorAll('*')];
+    for (const el of candidates) {
+      if (!el) continue;
+      const isRoot = el === document.scrollingElement;
+      if (!isRoot) {
+        const s = getComputedStyle(el);
+        if (!/(auto|scroll)/.test(s.overflowY)) continue;
+      }
+      const room = el.scrollHeight - el.clientHeight;
+      if (room < 150) continue;
+      const box = isRoot
+        ? { top: 0, bottom: innerHeight, left: 0, right: innerWidth }
+        : el.getBoundingClientRect();
+      const height = Math.min(box.bottom, innerHeight) - Math.max(box.top, 0);
+      if (height < 220) continue;
+      const controls = Array.from(el.querySelectorAll(selector)).filter((c) => visibleControl(c, box));
+      if (!controls.length) continue;
+      const id = `s${out.length}`;
+      if (!isRoot) el.setAttribute('data-tap-scroller', id);
+      out.push({
+        id: isRoot ? 'root' : id,
+        label: isRoot ? 'the page' : `${el.tagName.toLowerCase()}${el.id ? '#' + el.id : ''}`,
+        top: Math.max(box.top, 0),
+        bottom: Math.min(box.bottom, innerHeight),
+        left: Math.max(box.left, 0),
+        right: Math.min(box.right, innerWidth),
+        area: height * (Math.min(box.right, innerWidth) - Math.max(box.left, 0)),
+      });
+    }
+    // Larger first: the main list is where people swipe.
+    return out.sort((a, b) => b.area - a.area).slice(0, 2);
+  }, selector);
+}
 
-  return {
-    duringGesture,
-    clicks: after.clicks,
-    totalMutations: after.mutations,
-    clickProbe: after.clickProbe,
-    clickLabel: after.clickLabel,
+async function probeSwipeThenTap(cdp, page, scroller, selector) {
+  const x = Math.round((scroller.left + scroller.right) / 2);
+  const height = scroller.bottom - scroller.top;
+  const startY = Math.round(scroller.top + height * 0.8);
+  const distance = Math.round(Math.min(320, height * 0.6));
+  const steps = 6;
+
+  const scrollTopOf = () =>
+    page.evaluate((id) => {
+      const el = id === 'root' ? document.scrollingElement : document.querySelector(`[data-tap-scroller="${id}"]`);
+      return el ? el.scrollTop : 0;
+    }, scroller.id);
+  const before = await scrollTopOf();
+
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y: startY }] });
+  for (let i = 1; i <= steps; i += 1) {
+    await new Promise((r) => setTimeout(r, 8));
+    await cdp.send('Input.dispatchTouchEvent', {
+      type: 'touchMove',
+      touchPoints: [{ x, y: Math.round(startY - (distance * i) / steps) }],
+    });
+  }
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  const releasedAt = Date.now();
+  await page.waitForTimeout(40);
+
+  // The control nearest to the middle of the container that a finger can hit right now.
+  const target = await page.evaluate(
+    ({ id, selector }) => {
+      const root = id === 'root' ? document.scrollingElement : document.querySelector(`[data-tap-scroller="${id}"]`);
+      if (!root) return null;
+      const box = id === 'root' ? { top: 0, bottom: innerHeight } : root.getBoundingClientRect();
+      const mid = (Math.max(box.top, 0) + Math.min(box.bottom, innerHeight)) / 2;
+      let best = null;
+      for (const el of root.querySelectorAll(selector)) {
+        const r = el.getBoundingClientRect();
+        if (r.width < 8 || r.height < 8) continue;
+        const cx = r.left + r.width / 2;
+        const cy = r.top + r.height / 2;
+        if (cy < Math.max(box.top, 0) + 4 || cy > Math.min(box.bottom, innerHeight) - 4) continue;
+        const hit = document.elementFromPoint(cx, cy);
+        if (!hit || !el.contains(hit)) continue;
+        const d = Math.abs(cy - mid);
+        if (!best || d < best.d) best = { d, cx, cy, el };
+      }
+      if (!best) return null;
+      best.el.setAttribute('data-tap-swipe-target', '1');
+      return {
+        x: Math.round(best.cx),
+        y: Math.round(best.cy),
+        label: (best.el.getAttribute('aria-label') || best.el.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 40),
+      };
+    },
+    { id: scroller.id, selector }
+  );
+  if (!target) return { skipped: 'no control under the finger after the swipe' };
+
+  await page.evaluate(() => {
+    const g = window.__gesture;
+    Object.assign(g, { mutations: 0, structural: 0, clicks: 0, menus: [], clickForeign: false, clickReached: false, watching: true });
+    g.pressed = document.querySelector('[data-tap-swipe-target]');
+  });
+  const delay = Date.now() - releasedAt;
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: target.x, y: target.y }] });
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await page.waitForTimeout(320);
+  const result = await stopWatch(page);
+  await page.evaluate(() => document.querySelector('[data-tap-swipe-target]')?.removeAttribute('data-tap-swipe-target'));
+  const scrolled = (await scrollTopOf()) - before;
+  return { ...result, delay, scrolled, label: target.label };
+}
+
+async function runGestures({ target, page, cdp, limit }) {
+  const report = { block: 0, flag: 0 };
+  const say = (severity, text) => {
+    report[severity] += 1;
+    console.log(`      ${severity === 'block' ? 'BLOCK' : 'FLAG '} ${text}`);
   };
+
+  const restore = async () => {
+    await target.ready(page).catch(() => {});
+    await page.waitForTimeout(300);
+    await page.evaluate(INSTALL_GESTURE_WATCH).catch(() => {});
+    return collectTargets(page, limit);
+  };
+
+  console.log('Gesture mode: handlers are live, application state changes.\n');
+  let items = await collectTargets(page, limit);
+  for (let index = 0; index < items.length; index += 1) {
+    let item = items[index];
+    if (item.disabled) continue;
+    let header = false;
+    const heading = () => {
+      if (!header) console.log(`  ${item.tag} «${item.label}» ${item.width}×${item.height}`);
+      header = true;
+    };
+
+    // 1. Tap.
+    let url = page.url();
+    const tap = await probeTap(cdp, page, item);
+    if (tap.clicks === 0) {
+      heading();
+      say('block', 'tap: no click — on a phone the tap disappears silently');
+    }
+    // A click that lands off target matters precisely when something changed
+    // under the finger: that is the signature of a re-render that swapped the
+    // node and sent the action to a neighbour.
+    if (tap.clicks > 0 && tap.duringGesture > 0 && tap.clickProbe !== item.probe) {
+      heading();
+      say('block', `tap: the click landed on “${tap.clickLabel || 'another element'}” instead of the target — the node changed under the finger`);
+    }
+    if (tap.clicks > 1) {
+      heading();
+      say('block', `tap: one touch produced ${tap.clicks} clicks — the action fires twice`);
+    }
+    if (tap.duringGesture > 0) {
+      heading();
+      say('flag', `tap: the DOM changed during the gesture (${tap.duringGesture} mutations between touch and release) — click may not be synthesised`);
+    }
+    if (page.url() !== url || tap.structural > 0) {
+      items = await restore();
+      item = items[index];
+      if (!item) break;
+    }
+
+    // 2. Hold.
+    url = page.url();
+    const hold = await probeHold(cdp, page, item);
+    if (hold.clickActed) {
+      heading();
+      say(
+        'block',
+        `hold ${HOLD_MS} ms: the click after release landed on “${hold.clickLabel || 'another element'}”, not on the pressed element, and acted — whatever appeared under the finger took the tap`
+      );
+    }
+    const strayMenu = hold.menus.find((m) => m.foreign && m.reached && !m.prevented);
+    if (strayMenu) {
+      heading();
+      say(
+        'block',
+        `hold ${HOLD_MS} ms: contextmenu reached “${strayMenu.label}”, which appeared under the finger during the hold, and nobody cancelled it — Android sends it there; swallow it at the document level${strayMenu.synthetic ? ' (event sent by the check, as Android would)' : ''}`
+      );
+    }
+    if (page.url() !== url || hold.structural > 0) {
+      items = await restore();
+    }
+  }
+
+  // 3. Swipe with momentum, then a quick tap on a control the swipe revealed.
+  const startUrl = page.url();
+  const scrollers = await findScrollers(page, INTERACTIVE);
+  for (const scroller of scrollers) {
+    const result = await probeSwipeThenTap(cdp, page, scroller, INTERACTIVE);
+    if (result.skipped) {
+      console.log(`  swipe on ${scroller.label}: skipped — ${result.skipped}`);
+      continue;
+    }
+    if (result.delay > SWIPE_TAP_LIMIT_MS) {
+      console.log(`  swipe on ${scroller.label}: skipped — the tap came ${result.delay} ms after release, later than ${SWIPE_TAP_LIMIT_MS} ms (slow machine?)`);
+      continue;
+    }
+    // No click AND no reaction: the tap was spent on stopping the glide. A
+    // control that acts on touchend changes the page even without a click.
+    const outcome =
+      result.clicks > 0 ? 'click arrived' : result.mutations > 0 ? 'no click, the control reacted on touchend' : 'nothing happened';
+    console.log(`  swipe on ${scroller.label} (moved ${result.scrolled}px), then tap on «${result.label}» ${result.delay} ms later: ${outcome}`);
+    if (result.clicks === 0 && result.mutations === 0) {
+      say(
+        'flag',
+        'swipe-then-tap: no click and no reaction — the browser took the tap as "stop scrolling"; act on touchend for controls revealed by a swipe'
+      );
+    }
+    // A tap that navigated ends the probe: the next container belongs to another page.
+    if (page.url() !== startUrl) break;
+  }
+  return report;
 }
 
 async function main() {
@@ -238,71 +585,38 @@ async function main() {
   const height = Number(args.height || 844);
   // Fingers only exist on phones: the check runs in a mobile viewport with touch.
   const targets = await resolveTargets({ ...args, touch: true, width, height }, config);
+  const gestures = args.gestures === true || args.gestures === 'true';
 
   let blocking = 0;
   let flagged = 0;
+  // A run where the engine could not dispatch a single touch checked nothing.
+  // "Blocking: 0" there would read as a pass, so it ends as "could not run".
+  let checked = 0;
 
   for (const target of targets) {
     const opened = await target.open({ throttle: 1, viewport: { width, height } });
     const { page, context } = opened;
     try {
+      console.log(`\n═══ ${target.name} ═══`);
+      // Touch is dispatched through CDP: another engine gets one "skipped on" line.
+      const cdp = await openCDP(context, page, gestures ? 'touch gestures (CDP touch dispatch)' : 'real taps (CDP touch dispatch)');
+      if (!cdp) continue;
+      checked += 1;
       await target.ready(page);
       await page.waitForTimeout(300);
-      const cdp = await context.newCDPSession(page);
 
       // Gesture mode works with LIVE handlers, so the sink that swallows events is
       // installed only in the regular mode.
-      const gestures = args.gestures === true || args.gestures === 'true';
       if (gestures) {
         await page.evaluate(INSTALL_GESTURE_WATCH);
-      } else {
-        await page.evaluate(INSTALL_SINK, INTERACTIVE);
-      }
-
-      const items = await collectTargets(page, gestures ? Math.min(limit, 8) : limit);
-      console.log(`\n═══ ${target.name} ═══`);
-      if (gestures) {
-        console.log('Gesture mode: handlers are live, application state changes.\n');
-        let blocks = 0;
-        for (const item of items) {
-          if (item.disabled) continue;
-          const before = page.url();
-          const result = await probeGesture(cdp, page, item);
-          const problems = [];
-          if (result.clicks === 0) {
-            problems.push('BLOCK the tap produced no click — on a phone it disappears silently');
-          }
-          // A click that lands off target matters precisely when something changed
-          // under the finger: that is the signature of the failure where a
-          // re-render swapped the node and the action went to a neighbour.
-          if (result.clicks > 0 && result.duringGesture > 0 && result.clickProbe !== item.probe) {
-            problems.push(
-              `BLOCK the click landed on “${result.clickLabel || 'another element'}” instead of the target — the node changed under the finger`
-            );
-          }
-          if (result.clicks > 1) {
-            problems.push(`BLOCK one touch produced ${result.clicks} clicks — the action fires twice`);
-          }
-          if (result.duringGesture > 0) {
-            problems.push(
-              `FLAG  the DOM changed during the gesture (${result.duringGesture} mutations between touch and release) — click may not be synthesised`
-            );
-          }
-          if (problems.length) {
-            blocks += problems.filter((p) => p.startsWith('BLOCK')).length;
-            console.log(`  ${item.tag} «${item.label}» ${item.width}×${item.height}`);
-            for (const p of problems) console.log(`      ${p}`);
-          }
-          if (page.url() !== before) {
-            // The tap navigated away — restore the scenario to its initial state.
-            await target.ready(page).catch(() => {});
-            await page.evaluate(INSTALL_GESTURE_WATCH).catch(() => {});
-          }
-        }
-        console.log(`\nBlocking: ${blocks}`);
-        process.exitCode = blocks > 0 ? 1 : 0;
+        const report = await runGestures({ target, page, cdp, limit: Math.min(limit, 8) });
+        blocking += report.block;
+        flagged += report.flag;
         continue;
       }
+      await page.evaluate(INSTALL_SINK, INTERACTIVE);
+
+      const items = await collectTargets(page, limit);
       const view = page.viewportSize();
       console.log(`Elements under the finger: ${items.length}, viewport ${view?.width}×${view?.height}\n`);
 
@@ -375,8 +689,12 @@ async function main() {
     }
   }
 
-  console.log(`\nCrops of problem targets: ${outDir}`);
-  console.log(`Blocking: ${blocking} | warnings: ${flagged}`);
+  if (!gestures) console.log(`\nCrops of problem targets: ${outDir}`);
+  if (checked === 0) {
+    console.log('\nNot checked: this engine cannot dispatch real touches. Run it in Chromium.');
+    process.exit(2);
+  }
+  console.log(`\nBlocking: ${blocking} | warnings: ${flagged}`);
   process.exit(blocking > 0 ? 1 : 0);
 }
 

@@ -1,0 +1,27 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Drinks</title>
+<link rel="stylesheet" href="base.css">
+
+<header><a class="nav" href="#home">Home</a><button class="nav btn" type="button">Menu</button></header>
+<main><div class="wrap">
+  <h1>Drinks</h1>
+  <p>Short introduction to this section. <a class="more" href="#more">Read more</a></p>
+  <div class="cards"><div class="card"><h3>Tea</h3><p class="price">$3</p></div><div class="card"><h3>Coffee</h3><p class="price">$4</p></div><div class="card"><h3>Juice</h3><p class="price">$5</p></div><div class="card"><h3>Water</h3><p class="price">$1</p></div></div>
+  <div class="tabs">
+    <div class="tablist" role="tablist">
+      <button class="btn" role="tab" aria-controls="p1" aria-selected="true">Day</button>
+      <button class="btn" role="tab" aria-controls="p2" aria-selected="false">Week</button>
+      <button class="btn" role="tab" aria-controls="p3" aria-selected="false">Month</button>
+    </div>
+    <div class="panels">
+      <div role="tabpanel" id="p1">One line for the day.</div>
+      <div role="tabpanel" id="p2" data-off>Two lines for the week.<br>Second line.</div>
+      <div role="tabpanel" id="p3" data-off>Three lines for the month.<br>Second line.<br>Third line.</div>
+    </div>
+  </div>
+  <p><button class="btn" type="button">Order now</button> <button class="btn" type="button">Save</button></p>
+  
+</div></main>
+<script src="tabs.js"></script>

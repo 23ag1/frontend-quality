@@ -1,0 +1,21 @@
+/* The clean layout shared by every fixture page. */
+* { box-sizing: border-box; }
+body { margin: 0; font: 16px/1.5 system-ui, sans-serif; color: #111; background: #fff; }
+header { display: flex; gap: 12px; padding: 12px 16px; }
+main { display: block; }
+.wrap { max-width: 960px; margin: 0 auto; padding: 0 16px; }
+h1 { font-size: 28px; line-height: 1.2; margin: 24px 0 12px; }
+.cards { display: grid; grid-template-columns: 1fr; gap: 12px; margin: 16px 0; }
+@media (min-width: 700px) { .cards { grid-template-columns: repeat(3, 1fr); } }
+.card { border: 1px solid #ddd; border-radius: 12px; padding: 12px; }
+.card h3 { margin: 0 0 8px; font-size: 18px; line-height: 1.3; }
+.card .price { margin: 0; font-weight: 600; }
+.tabs { margin: 16px 0; }
+.tablist { display: flex; gap: 8px; }
+/* Panels share one grid cell: the section is as tall as the tallest panel. */
+.panels { display: grid; margin-top: 8px; }
+.panels > [role="tabpanel"] { grid-area: 1 / 1; }
+.panels > [role="tabpanel"][data-off] { visibility: hidden; }
+.btn { display: inline-flex; justify-content: center; align-items: center; gap: 8px; padding: 10px 16px; border: 1px solid #999; border-radius: 8px; background: #f4f4f4; font: inherit; color: inherit; text-decoration: none; }
+a:focus, button:focus { outline: none; }
+a:focus-visible, button:focus-visible { outline: 2px solid #0a58ff; outline-offset: 2px; }

@@ -1,0 +1,33 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Motion: clean twin</title>
+<style>
+  body { font: 16px/1.4 system-ui; margin: 24px; color: #111; background: #fff; }
+  button { font: inherit; padding: 10px 16px; }
+  .toast { margin-top: 16px; padding: 12px; background: #222; color: #fff; transition: opacity 400ms ease; }
+  .toast.leaving { opacity: 0; }
+  .panel { width: 200px; height: 80px; margin-top: 16px; background: #ddd; transition: transform 300ms ease; }
+  .panel.open { transform: translateX(120px); }
+  /* An infinite spinner removed when "data arrives" is how spinners end. */
+  .spinner { width: 16px; height: 16px; border: 2px solid #999; border-top-color: transparent; border-radius: 50%; animation: spin 800ms linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
+</style>
+<button id="dismiss">Dismiss</button>
+<button id="slide">Slide</button>
+<div class="toast" id="toast">Saved</div>
+<div class="panel" id="panel"></div>
+<div class="spinner" id="spinner"></div>
+<script>
+  // FIX 1: the node leaves when its own transition says it has ended.
+  document.getElementById('dismiss').addEventListener('click', () => {
+    const toast = document.getElementById('toast');
+    toast.addEventListener('transitionend', () => toast.remove(), { once: true });
+    toast.classList.add('leaving');
+  });
+  // FIX 2: one state change per action.
+  document.getElementById('slide').addEventListener('click', () => {
+    document.getElementById('panel').classList.toggle('open');
+  });
+  setTimeout(() => document.getElementById('spinner').remove(), 300);
+</script>

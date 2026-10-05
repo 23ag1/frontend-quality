@@ -1,0 +1,93 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tap gestures: clean twin</title>
+<style>
+  body { margin: 0; font: 16px/1.4 system-ui; color: #111; background: #fff; }
+  header { padding: 12px 16px; }
+  button { font: inherit; min-height: 48px; min-width: 48px; padding: 8px 16px; border: 1px solid #bbb; border-radius: 8px; background: #f4f4f4; }
+  #list { height: 520px; overflow-y: auto; margin: 0 16px; border: 1px solid #ddd; }
+  #list button { display: block; width: 100%; margin: 4px 0; text-align: left; }
+  .backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, .3); }
+  .menu { position: absolute; left: 8px; top: 8px; width: 240px; background: #fff; border-radius: 12px; padding: 8px; }
+  .menu button { display: block; width: 100%; }
+</style>
+<header>
+  <!-- FIX 1: the gesture that opened the menu swallows its own tail
+       (contextmenu and the click after release) at the document level. -->
+  <button id="hold">Hold for actions</button>
+</header>
+<!-- FIX 2: list buttons act on touchend (short, finger stationary, started on
+     the button) and drop the click that may follow. -->
+<div id="list"></div>
+<script>
+  const list = document.getElementById('list');
+  const bump = (count) => {
+    count.firstChild.nodeValue = String(Number(count.firstChild.nodeValue) + 1);
+  };
+  for (let i = 1; i <= 40; i += 1) {
+    const b = document.createElement('button');
+    b.append(`Dish ${i} `);
+    const count = document.createElement('span');
+    count.append('0');
+    b.append(count);
+    let start = null;
+    let handledByTouch = false;
+    b.addEventListener('touchstart', (e) => {
+      const t = e.touches[0];
+      start = { x: t.clientX, y: t.clientY, at: performance.now() };
+    }, { passive: true });
+    b.addEventListener('touchmove', (e) => {
+      const t = e.touches[0];
+      if (start && Math.hypot(t.clientX - start.x, t.clientY - start.y) > 14) start = null;
+    }, { passive: true });
+    b.addEventListener('touchend', () => {
+      if (!start || performance.now() - start.at > 500) return;
+      start = null;
+      handledByTouch = true;
+      bump(count);
+    });
+    b.addEventListener('click', () => {
+      if (handledByTouch) {
+        handledByTouch = false;
+        return;
+      }
+      bump(count);
+    });
+    list.append(b);
+  }
+
+  const hold = document.getElementById('hold');
+  let timer = null;
+  hold.addEventListener('touchstart', () => {
+    timer = setTimeout(openMenu, 450);
+  }, { passive: true });
+  hold.addEventListener('touchend', () => clearTimeout(timer));
+
+  function swallowTail() {
+    const swallow = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    document.addEventListener('contextmenu', swallow, { capture: true });
+    const dropClick = (e) => {
+      swallow(e);
+      document.removeEventListener('click', dropClick, { capture: true });
+    };
+    document.addEventListener('click', dropClick, { capture: true });
+    // The tail belongs to this gesture only: the next touch starts clean.
+    document.addEventListener('touchstart', () => {
+      document.removeEventListener('contextmenu', swallow, { capture: true });
+      document.removeEventListener('click', dropClick, { capture: true });
+    }, { capture: true, once: true });
+  }
+
+  function openMenu() {
+    swallowTail();
+    const backdrop = document.createElement('div');
+    backdrop.className = 'backdrop';
+    backdrop.innerHTML = '<div class="menu"><button id="remove">Remove dish</button><button>Repeat</button></div>';
+    backdrop.addEventListener('click', () => backdrop.remove());
+    document.body.append(backdrop);
+  }
+</script>

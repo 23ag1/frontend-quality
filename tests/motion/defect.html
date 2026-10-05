@@ -1,0 +1,29 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Motion: defects</title>
+<style>
+  body { font: 16px/1.4 system-ui; margin: 24px; color: #111; background: #fff; }
+  button { font: inherit; padding: 10px 16px; }
+  .toast { margin-top: 16px; padding: 12px; background: #222; color: #fff; transition: opacity 400ms ease; }
+  .toast.leaving { opacity: 0; }
+  .panel { width: 200px; height: 80px; margin-top: 16px; background: #ddd; transition: transform 300ms ease; }
+  .panel.open { transform: translateX(120px); }
+</style>
+<button id="dismiss">Dismiss</button>
+<button id="slide">Slide</button>
+<div class="toast" id="toast">Saved</div>
+<div class="panel" id="panel"></div>
+<script>
+  // DEFECT 1: the fade is 400 ms, the timer that removes the node fires at 150 ms.
+  document.getElementById('dismiss').addEventListener('click', () => {
+    const toast = document.getElementById('toast');
+    toast.classList.add('leaving');
+    setTimeout(() => toast.remove(), 150);
+  });
+  // DEFECT 2: a second state change 100 ms later replaces the running transition.
+  document.getElementById('slide').addEventListener('click', () => {
+    const panel = document.getElementById('panel');
+    panel.classList.add('open');
+    setTimeout(() => panel.classList.remove('open'), 100);
+  });
+</script>

@@ -1,0 +1,102 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Races fixture</title>
+<style>
+  body { font: 16px/1.4 system-ui; margin: 16px; color: #111; background: #fff; }
+  .row { display: flex; gap: 12px; align-items: center; padding: 8px 0; border-bottom: 1px solid #eee; }
+  .name { flex: 1; }
+  button { font: inherit; padding: 10px 16px; }
+  #toast:empty, #alert:empty { display: none; }
+</style>
+<header><button id="refresh">Refresh</button></header>
+<main id="rows"></main>
+<div role="status" id="toast"></div>
+<div role="alert" id="alert"></div>
+<script>
+  /*
+   * Six toggles, one policy each. Every one is optimistic: the value flips on
+   * the tap and the request confirms it.
+   *
+   *   double   - DEFECT: no guard while the request is in flight; two taps, two requests
+   *   rollback - DEFECT: 1.5 s after a success a timer puts the old value back
+   *   stale    - DEFECT: a refresh overwrites unconfirmed actions, and the
+   *              answer to the action is not applied
+   *   silent   - DEFECT: on failure the value goes back without a word
+   *   liar     - DEFECT: on failure it keeps the new value and says "Saved"
+   *   correct  - guard, answer applied, refresh keeps unconfirmed actions on top,
+   *              failure rolls back and says so
+   */
+  const IDS = ['double', 'rollback', 'stale', 'silent', 'liar', 'correct'];
+  const state = {};
+  const pending = {};
+  const rows = document.getElementById('rows');
+  const toast = document.getElementById('toast');
+  const alertBox = document.getElementById('alert');
+  let toastTimer = null;
+
+  const say = (box, text) => {
+    box.textContent = text;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => {
+      toast.textContent = '';
+      alertBox.textContent = '';
+    }, 3000);
+  };
+  const render = (id) => {
+    document.querySelector(`#row-${id} .state`).textContent = state[id] ? 'on' : 'off';
+  };
+
+  for (const id of IDS) {
+    const row = document.createElement('div');
+    row.className = 'row';
+    row.id = `row-${id}`;
+    row.innerHTML = `<span class="name">${id}</span><span class="state">off</span><button type="button">Toggle</button>`;
+    row.querySelector('button').addEventListener('click', () => toggle(id));
+    rows.append(row);
+  }
+
+  async function toggle(id) {
+    if (pending[id] && id !== 'double') return;
+    const previous = state[id];
+    state[id] = !previous;
+    pending[id] = true;
+    render(id);
+    try {
+      const res = await fetch(`/api/toggle/${id}`, { method: 'POST' });
+      if (!res.ok) throw new Error(String(res.status));
+      const body = await res.json();
+      if (id !== 'stale') state[id] = body.on;
+      pending[id] = false;
+      render(id);
+      say(toast, 'Saved');
+      if (id === 'rollback') {
+        setTimeout(() => {
+          state[id] = previous;
+          render(id);
+        }, 1500);
+      }
+    } catch {
+      pending[id] = false;
+      if (id === 'liar') {
+        say(toast, 'Saved');
+        return;
+      }
+      state[id] = previous;
+      render(id);
+      if (id !== 'silent') say(alertBox, `Could not save ${id} — try again`);
+    }
+  }
+
+  async function refresh() {
+    const res = await fetch('/api/state');
+    const body = await res.json();
+    for (const id of IDS) {
+      if (pending[id] && id !== 'stale') continue;
+      state[id] = body[id];
+      render(id);
+    }
+  }
+  document.getElementById('refresh').addEventListener('click', refresh);
+  refresh();
+</script>
