@@ -43,12 +43,15 @@ everything:
 
 | Role | Typical | Where |
 |---|---|---|
-| Caption | 12 | labels, metadata |
-| Body-sm | 14 | body text in a dense interface |
-| Body | 16 | body text |
+| Body | 16 | body text, labels, metadata — the minimum |
 | Headline | 18–20 | section heading, dialog title |
 | Title | 24–28 | screen title |
 | Display | 36+ | hero, large numbers |
+
+Labels and metadata differ from body text by weight and colour, not by a smaller
+size. A 14 or 12 step appears only when the project records an explicit exception
+(a dense point-of-sale screen where everything must fit), and then it is part of
+the project's own scale.
 
 The scale is built by ratio: size = base × ratio^step. Use 1.125–1.2 for dense
 interfaces, 1.25–1.333 for marketing. Pick one and stay with it.
@@ -69,7 +72,7 @@ Not one multiplier for everything, but ranges:
 
 | Size | Line height |
 |---|---|
-| captions 12–14 | 1.25–1.5 |
+| below 16, by project exception only | 1.25–1.5 |
 | body 16–18 | 1.4–1.65 |
 | headings >24 | 1.15–1.3 |
 

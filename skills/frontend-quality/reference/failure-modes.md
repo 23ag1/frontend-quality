@@ -1,8 +1,16 @@
 # Failure modes: what actually broke
 
-Assembled by going through the history of a real project: 190 fix commits across
-two frontends, the closed bug tracker and the project's long-term notes. These are
-not general recommendations — every entry happened, cost time, and repeated.
+Assembled by going through the history of real projects. Entries 1–14 came from
+190 fix commits across two frontends, the closed bug tracker and the project's
+long-term notes. Entries 15–48 came from a later review of one month of a production
+app (a restaurant point-of-sale app used on staff phones): about 750 fix commits and
+295 fixes classified by cause. These are not general recommendations — every entry
+happened, cost time, and repeated.
+
+48 entries in two files. This one holds 1–14.
+[failure-modes-2.md](failure-modes-2.md) holds 15–48, grouped: touch and gestures,
+old browsers, keyboard and viewport, React and hydration, network and state, layout
+scroll and motion, text and language.
 
 Format: **symptom → the real cause → how to fix it → what catches it**. The last
 line matters most: a rule nothing can check does not work.
@@ -99,11 +107,13 @@ got an extra stretch of scroll.
 
 **Fix.** The footer is rendered **after** the scroller and takes no part in its
 height (a dedicated prop on the sheet). No sticky hacks with negative margins. The
-window height is `dvh` with a ceiling and internal scrolling.
+window height is `var(--app-h, 100dvh)` with a ceiling and internal scrolling —
+never a bare `dvh`, which browsers older than Chrome 108 drop entirely (see
+[22](failure-modes-2.md#22-a-viewport-unit-the-browser-does-not-know)).
 
 **What catches it.** `verify-ui.mjs`: a `low` 390×640 breakpoint in the default set
 plus the check "cannot reach this element: it is outside the viewport and there is
-no scroll" (BLOCK).
+no scroll" (BLOCK). `check-forbidden.sh`: a bare `dvh`/`svh`/`lvh` (BLOCK).
 
 ---
 
@@ -166,11 +176,19 @@ BLOCK, with the layout count attached.
 severed the chunked transfer) — `await res.json()` neither resolved nor rejected
 **ever**, the code stayed inside `try`, and `finally` never ran.
 
-**Fix.** `AbortSignal.timeout(...)` on every request, with a value aligned to the
-polling interval. The error must reach the screen's state.
+**Fix.** A timeout on every request, set in the one network layer, with a value
+aligned to the polling interval. The error must reach the screen's state.
+`AbortSignal.timeout(...)` is the short way, but it exists only from Chrome 103 /
+Safari 16 (and `AbortSignal.any`, to combine it with the caller's signal, only from
+Chrome 116 / Safari 17.4). Below that the call throws before `fetch` starts and no
+request leaves at all — so either ship a polyfill as the first script in `<head>`,
+before the bundle, or build the timeout from `AbortController` + `setTimeout`
+(see [23](failure-modes-2.md#23-a-newer-api-kills-the-request-before-it-leaves)).
 
 **What catches it.** `check-forbidden.sh`: `fetch` without a signal or timeout
 (FLAG). `verify-perf.mjs`: loading skeletons still present after 3 s (BLOCK).
+`check-browser-floor.mjs`: `AbortSignal.timeout` / `AbortSignal.any` above the
+project's browser floor.
 
 ---
 
@@ -287,14 +305,15 @@ schedule; on top of that the node was remounted at the moment of completion.
 **Fix.** Finish on `transitionend` / `animationend`, never by timer; keep keys
 stable so the node is not recreated as it commits.
 
-**What catches it.** A small audit script over the scenario: it counts finished
-animations against aborted ones (`animationcancel` / `transitioncancel`).
+**What catches it.** `verify-motion.mjs --scenario`: it reports aborted
+animations (`animationcancel` / `transitioncancel`) against finished ones.
 
 ---
 
 ## How to use this
 
-Before touching an area, read the matching entry: that defect has almost certainly
+Before touching an area, read the matching entry here or in
+[failure-modes-2.md](failure-modes-2.md): that defect has almost certainly
 happened here before. After the change, run the check from the entry's last line.
 If you find a failure that is not on the list, add it **together with whatever now
 catches it**: an entry without a check lives until the first person forgets.

@@ -24,12 +24,17 @@ about it.** In that order, in one or two lines.
 | Bad | Good |
 |---|---|
 | "An error occurred" | "The item did not reach the kitchen. Send it again" |
-| "Please try again" | "Connection lost. The order is saved and will be sent when you are back online" |
+| "Please try again" | "No connection. The order was not sent — send it again when the connection is back" |
 | "Validation error" | "Table number takes digits only" |
 
 An error must not report success: if the system did not confirm the operation, the
 interface says so instead of drawing a tick. That is the most expensive class of
 interface lying — the person walks away believing the job is done.
+
+Nor does the text promise that something will happen on its own later ("will be
+sent when you are back online"): a screen that changes by itself seconds or minutes
+after the person left it reads as a bug. Name the state and the action — "Not sent",
+"Send again" — and let the person decide.
 
 ## Empty states
 
@@ -40,6 +45,11 @@ guests are seated" is text.
 Separate two different cases: **empty because nothing has been created yet**
 (teach the first step) and **empty because a filter found nothing** (offer to
 change the filter).
+
+And never a third: **empty because the request failed.** That is an error, not an
+empty state. "No orders yet" over a failed request sends the person to act on a
+false picture. Offline, keep the last data and say how old it is: "No connection.
+Data from 14:32".
 
 ## Waiting
 

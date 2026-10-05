@@ -47,6 +47,13 @@ a heading became one line, a hole appeared.
 **Fix.** Align rows of neighbouring cards with `subgrid` (`grid-rows-subgrid` plus
 `row-span-N` on the card), not with a height fitted to today's text.
 
+**Below the floor.** `subgrid` needs Chrome 117 and Safari 16; an older engine
+ignores it and each card becomes its own grid. If the project's floor is lower
+([browser-floor.md](browser-floor.md)), the base layout is a card as a flex column
+with the footer pushed down (`margin-top: auto`), and `subgrid` goes on top inside
+`@supports (grid-template-rows: subgrid)`. On the old engine the inner rows may
+drift, the footers still line up — name that as the accepted degradation.
+
 ## Neighbouring columns of different heights, empty space below
 
 **Cause.** The column with tabs is as tall as its content, the panel beside it is
@@ -87,8 +94,14 @@ and the keyboard cover it from below.
 - Anything pinned to the bottom (`position: fixed; bottom: 0`) is measured from
   `visualViewport`, not from the layout viewport. Otherwise the sheet slides under
   the browser bar and the input field under the keyboard.
-- Height is `dvh`, never `vh`, always with a ceiling and internal scrolling: if
+- Height follows the visible area, always with a ceiling and internal scrolling: if
   something eats space from below, the content compresses instead of being cut off.
+  Write it as `var(--app-h, 100dvh)`, never bare `dvh` and never `100vh; 100dvh` in
+  a row — Chrome before 108 drops `dvh`, and the pair gets merged by the minifier
+  ([browser-floor.md](browser-floor.md), section 5).
+- The keyboard is the same trouble with two models — the window shrinks on some
+  phones and the bottom is covered on others; see
+  [forms-mobile.md](forms-mobile.md).
 - Found a fix for one case — apply it to all the similar ones at once. The keyboard
   and the browser bar are one trouble from two sides.
 

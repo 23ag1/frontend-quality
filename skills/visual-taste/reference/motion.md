@@ -35,9 +35,14 @@ Only `transform` and `opacity`. Those two are handled by the compositor without
 running layout or paint. `height`, `top`, `width`, `filter` on every frame mean
 layout work — that is, jank on a weak phone.
 
-The height of an expanding block is the most common temptation. The options:
-`grid-template-rows: 0fr → 1fr`, `clip-path`, or animating a wrapper with
-`transform` and compensating inside. Details and budgets live in the
+The height of an expanding block is the most common temptation. In order of
+preference: animate a wrapper with `transform` and compensate inside, or
+`clip-path`, or open instantly. `grid-template-rows: 0fr → 1fr` is often recommended
+and **breaks the rule above**: it runs layout on every frame. It is tolerable for a
+single small block on a promo page, not for rows in a list or anything on a weak
+phone. It also needs Chrome 107 and Safari 16 — below that the block jumps open
+without a transition (the browser floor is in the `frontend-quality` skill,
+`reference/browser-floor.md`). Details and budgets live in the
 `frontend-performance` skill.
 
 ## Respecting "reduce motion"
@@ -83,6 +88,26 @@ skeleton, progress.
 
 An important subtlety: **do not show a wait shorter than ~200 ms**. An indicator
 that flashes and disappears reads as a glitch, not as speed.
+
+That threshold is for wait indicators, not for the answer to a press. **The press
+itself answers in the first frame**, even while the network is pending: the tapped
+tile shows its pressed state and a small loading mark on itself, at once. A tile
+that shows nothing for 400 ms gets tapped again, and the second tap becomes a
+duplicate. The full-screen skeleton or spinner still waits for its 200 ms.
+
+## Animate only what the person caused and can see
+
+- **Only what the person caused.** A toast sliding in on every background poll, a
+  row flashing on every data refresh — motion nobody asked for. Fresh data replaces
+  the old quietly; nothing moves on its own.
+- **Only what is visible.** A staggered entrance ("fan-out") written for a demo of
+  three items ran over 47 real ones: the last card arrived about two seconds later,
+  off screen, and the list kept moving under the reader. Stagger only the items in
+  the viewport, cap the total spread (about 150–200 ms however many there are),
+  and count each item's offset from the anchor of the motion, not from its index in
+  the whole list. Test on the real volume, not three items.
+- **Nothing remounts at the end.** A node recreated when the animation commits
+  flickers for one frame — keep keys stable.
 
 ## Anti-patterns
 

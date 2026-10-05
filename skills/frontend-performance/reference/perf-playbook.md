@@ -122,6 +122,10 @@ cards in a grid):
 `contain-intrinsic-size: auto <length>` remembers the real size once the section
 has been on screen and uses it afterwards — the scrollbar stops jumping.
 
+`content-visibility` needs Chrome 85 and Safari 18. Older Safari renders everything:
+nothing breaks, but the saving is not there — measure a long page on WebKit
+separately instead of assuming the gain.
+
 **Isolating subtrees.** `contain: layout paint` tells the engine that changes
 inside do not escape: recalculation stops at the boundary. For sheets, cards and
 widgets that is a cheap win.

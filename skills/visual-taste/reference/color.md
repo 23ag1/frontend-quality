@@ -39,6 +39,24 @@ perceptually uniform — equal steps in lightness look equal.
 The rule for building it: hold the hue, vary the lightness — and **reduce chroma
 towards the extremes**. High chroma next to white or black looks toxic.
 
+**Build in OKLCH, ship with a fallback below the floor.** `oklch()` needs Chrome 111
+and Safari 15.4, `color-mix()` Chrome 111 and Safari 16.2. An older engine cannot
+use the value: a plain declaration is dropped, and one that reads a token through
+`var()` resolves to `unset` — either way the colour falls back to whatever is
+inherited, and text on a button can vanish. If the project supports such engines, give every token an sRGB
+value and put the OKLCH one under `@supports`, not as a second line in the same rule
+(a minifier may merge the pair):
+
+```css
+:root { --accent-500: #3b7ddd; }
+@supports (color: oklch(0% 0 0)) {
+  :root { --accent-500: oklch(62% 0.16 255); }
+}
+```
+
+Or compute the sRGB values at build time and ship only those. The floor and the
+feature table live in the `frontend-quality` skill, `reference/browser-floor.md`.
+
 ## Contrast: what actually gets checked
 
 - Text — 4.5:1; large text (24px and up, or 18.66px bold) — 3:1.

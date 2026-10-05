@@ -236,6 +236,13 @@ The modern replacement for a hand-written scroll listener is scroll-driven
 animation in the browser, and `IntersectionObserver` instead of counting positions
 by hand.
 
+Scroll-driven animations need Chrome 115; Safari has them only from 26. Below the
+project's browser floor there is no animation at all, so the content must be
+complete without it: the start state equals the end state, and the effect is
+added on top under `@supports (animation-timeline: scroll())`. The fallback is an
+`IntersectionObserver` toggling a class — never a scroll listener. The floor and the
+feature table are in the `frontend-quality` skill, `reference/browser-floor.md`.
+
 ### 5. Layer explosion and GPU memory
 
 `will-change: transform` on everything and `translateZ(0)` "for speed" create

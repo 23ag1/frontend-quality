@@ -84,15 +84,92 @@ crash.
    opens the page with the setting on and fails the check if infinite animations
    keep running.
 
+## Rules from winners are frequencies, not laws
+
+Measured across award-winning sites, most keep a narrow vocabulary: two typefaces,
+five to seven sizes, four to six text colours. Then the exceptions: one winner uses
+33 font sizes and 53 spacing values, another four typefaces and 21 text colours. A
+rule followed without knowing its reason is a cargo cult. A narrow vocabulary
+matters when the site stands on type and layout; when it stands on a 3D scene, the
+discipline moves into the frame and memory budgets.
+
+So first decide which of three classes of work this is:
+
+1. **Typographic** — the page is type, layout and restrained motion. The type and
+   spacing rules of the `visual-taste` skill apply in full.
+2. **Scenic** — a GPU scene does the work, the CSS is nearly empty. Size rules
+   barely apply; frame time, VRAM and draw calls (the budgets above) are the law.
+3. **Catalogue** — many sections, heavy media. Discipline comes from a design
+   system, not from asceticism; the risk is weight and consistency.
+
+## A word budget
+
+One screen — one thought. Give every page a word budget and count it, not guess it:
+`document.querySelector('main').innerText.split(/\s+/).filter(Boolean).length`. For
+reference, one product site settled on 300 words for the home page, 500 for the
+catalogue and 350 for a product page. Over budget — cut, do not shrink the type.
+
+## Fonts that cannot come back by accident
+
+- **No monospace or serif unless chosen.** In Tailwind 4 remove the families from
+  the theme so the utilities do not exist at all:
+
+  ```css
+  @theme {
+    --font-mono: initial;
+    --font-serif: initial;
+  }
+  ```
+
+  A stray `font-mono` in a later edit then simply does nothing, instead of quietly
+  bringing a second voice onto the page.
+- **`next/font/google` with two weights may ship the variable font.** Listing two
+  weights made Google serve the variable file: 80 KB for a Latin plus Cyrillic
+  subset against 31 KB for the one static weight actually used. Load the weights the
+  page uses, then check the bytes in the network panel of the production build —
+  the list in the code does not tell you what was downloaded.
+
+## Heavy graphics in production
+
+- **One ticker for smooth scroll and scroll-linked animation.** A smooth-scroll
+  library and the scroll-trigger library must run on the same frame clock;
+  otherwise the triggers lag the scroll by a frame and the scene jitters against the
+  DOM. With Lenis and GSAP:
+
+  ```js
+  lenis.on('scroll', ScrollTrigger.update);
+  gsap.ticker.add((time) => lenis.raf(time * 1000));
+  gsap.ticker.lagSmoothing(0);
+  ScrollTrigger.config({ ignoreMobileResize: true }); // the address bar is not a resize
+  ```
+
+- **Text in a scene is MSDF, not a canvas texture.** Text rasterised to a 2D canvas
+  and uploaded as a texture blurs and tears when scaled or turned. A multi-channel
+  signed distance field keeps edges and corners sharp at any scale; for dynamic text
+  a library that builds the atlas in a worker keeps the main thread free.
+- **Free GPU memory explicitly.** Removing a mesh frees only the JavaScript wrapper.
+  Dispose geometry, materials and every texture on them; close `ImageBitmap`
+  sources of loaded textures; dispose controls, render targets and the
+  post-processing composer. Pool short-lived objects (particles, debris) and toggle
+  `visible` instead of creating and destroying them — allocation churn makes the
+  garbage collector drop frames.
+- **Profile the frame, not the feeling.** A WebGL frame capture (Spector.js) for draw
+  calls, shaders and textures; an in-app counter (stats-gl) for frame time, draw
+  calls and triangles; the browser performance panel for the main thread; a budget
+  check in CI that fails the pull request.
+
 ## What else gets checked on a landing but not in a product
 
 - Opening every inner page by direct link, not only from the home page.
 - Meta tags and the share image: the page ends up in messengers and social feeds.
 - Forms: success, network error, double submission, autofill, the mobile keyboard
-  (`inputmode`, `autocomplete`).
+  (`inputmode`, `autocomplete`), Back closing the form. On a website a sign-in form
+  on a phone is a page, not a bottom sheet; focus on open goes to the form, not into
+  the first field. The full list: [forms-mobile.md](forms-mobile.md).
 - Video and heavy media: a poster, `preload`, no autoplay under data saving.
-- A real device, not only emulation: `dvh`, scroll inertia and scene weight behave
-  differently on a phone.
+- A real device, not only emulation: the viewport height, scroll inertia and scene
+  weight behave differently on a phone. Viewport units need a fallback below the
+  browser floor ([browser-floor.md](browser-floor.md)).
 
 Budgets and measurement methodology live in the `frontend-performance` skill;
 hand-off lives in [checklist.md](checklist.md).

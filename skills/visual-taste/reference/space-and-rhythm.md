@@ -41,7 +41,11 @@ in the same arithmetic and the page "adds up" without explanation.
 A mock is drawn at one particular width — that is a proportion, not an absolute.
 
 - Sizes inside a block are fractions of it: `cqw` with `container-type`, or
-  percentages with `aspect-ratio`.
+  percentages with `aspect-ratio`. Two costs of `container-type`: it needs Chrome
+  105 and Safari 16, and **it makes the wrapper the containing block for
+  `position: fixed` descendants** — a dialog rendered inside it is clipped to the
+  wrapper and its backdrop stops short of the screen edge. Render overlays through a
+  portal into `body`.
 - The blocks themselves use the same fractions but with a limiter: `min()`,
   `clamp()`. Without one the section bloats on a wide screen and overflows on a
   narrow one.
@@ -67,7 +71,9 @@ meaningful groups, otherwise the eye cannot find the edges.
   floats in a third of the screen. Steps, chains and rows with arrows are laid out
   by content (`flex` plus a single `gap`).
 - **Neighbouring cards of different heights.** Align with `subgrid`, not by
-  setting a height to fit today's text.
+  setting a height to fit today's text. `subgrid` needs Chrome 117 and Safari 16;
+  below that floor the base is a flex-column card with the footer pushed down, and
+  `subgrid` goes on top under `@supports`.
 - **Negative margins used to "widen" an element.** They move it, they do not widen
   it: the box stays the same and so does the target.
 - **A fixed height on variable content.** Only `min-height`, otherwise the extra

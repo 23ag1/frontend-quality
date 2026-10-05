@@ -24,12 +24,27 @@ number or a screenshot — "looked at it, seems fine" does not count.
 - [ ] Not a single instance of numbering with a leading zero.
 - [ ] The rubric score from [the skill body](../SKILL.md) is ≥42/50, every figure
       backed by a measurement.
-- [ ] The report contains a "what I did not check" section.
+- [ ] Everything that can be checked by reading code or running a script was
+      checked before the report. The "needs a device or access" section lists only
+      the rest, each item with its reason.
+- [ ] If the project declares a browser floor, `node $SK/check-browser-floor.mjs
+      <src>` is clean, and the working screen was run once on the floor engine
+      ([browser-floor.md](browser-floor.md)).
 
 where `SK=~/.claude/skills/frontend-quality/scripts`
 
 ## A product screen
 
+- [ ] A new screen: two or three composition variants were shown on real data and
+      one was chosen; every approved state is its own commit.
+- [ ] The behaviour table for the touched element exists — intents × events ×
+      expected behaviour, by [behaviour-laws.md](behaviour-laws.md) — and every row
+      is either checked or marked "needs a device". An unreproduced defect is
+      reported as "a fix by hypothesis".
+- [ ] A fix for a defect has a guard test, and that test was seen red once on the
+      code before the fix.
+- [ ] A second defect of a class already seen got a shared mechanism (or a task for
+      one, linked from the temporary patch), not a third local patch.
 - [ ] The screen was checked at real data volume (hundreds of items, dozens of
       rows), not on a demo set.
 - [ ] `node $SK/verify-tap.mjs --scenario <scenario>` — zero blocking: targets
@@ -46,6 +61,12 @@ where `SK=~/.claude/skills/frontend-quality/scripts`
       at every width, with a 0px spread between toggle states.
 - [ ] A repeated tap and a lost connection do not create a duplicate (order, table,
       payment).
+- [ ] Nothing on the screen changes by itself seconds after an action (no late
+      rollback, no silent retry or queue); a failed request is an explicit state, an
+      error is never drawn as "empty" ([network-state.md](network-state.md)).
+- [ ] Forms and sheets on a phone: the scenarios from
+      [forms-mobile.md](forms-mobile.md) were written before the code, and
+      `verify-keyboard.mjs` was run in both keyboard models.
 - [ ] `npm run lint`, `npm test`, `npm run test:e2e` — green.
 - [ ] Nothing unapproved was added: no new functions, buttons or behavioural
       "improvements", or they were explicitly approved.
@@ -70,7 +91,8 @@ where `SK=~/.claude/skills/frontend-quality/scripts`
       the bottom edge, scroll inertia, scene weight.
 - [ ] Every inner page opens by direct link; meta tags and the share image are in
       place.
-- [ ] Forms: success, network error, double submission, autofill, mobile keyboard.
+- [ ] Forms: success, network error, double submission, autofill, mobile keyboard,
+      Back closes the form — the full list is in [forms-mobile.md](forms-mobile.md).
 - [ ] Media is real in every section, no placeholders.
 - [ ] The canvas scene is mirrored by a semantic DOM layer for screen readers.
 
@@ -98,8 +120,14 @@ What to fix (most important first)
 Taste (not violations)
   — suggestions that can be ignored
 
-What I did not check
-  — Safari, a real device, states under data, and so on
+Needs a device or access I do not have
+  — <what> — <why it cannot be checked here: a real device, a write to shared
+    data, an account or environment I cannot reach>
 ```
 
-The last section is mandatory.
+The last section is mandatory, and it is short. Anything that can be checked by
+reading the code or running a script — states under data, WebKit, the floor engine,
+the keyboard models — is checked before the report, not listed here. "Did not
+check" is not an outcome for those. What remains has a reason: the iPhone keyboard
+and its focus rules need a real device; a check that writes to shared data needs
+permission; an environment behind a login needs access.

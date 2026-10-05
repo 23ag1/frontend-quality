@@ -27,6 +27,16 @@ judge the result, not the intent.
 `UI-SPEC.md` if there is one, the brief from whoever called you. Without them you
 are judging against the generic rubric, and you must say so.
 
+**1a. Derive the cases yourself, before reading how it was built.** Take the
+behaviour laws (`~/.claude/skills/frontend-quality/reference/behaviour-laws.md`)
+and run the procedure for the touched element: the person's intents, the events
+(scroll, drag, keyboard, Back, rotation, background, network loss, late response,
+repeated tap, a second path, another width or language), the expected behaviour for
+each. Write that table **before** you open the implementation notes, the commit
+message or the author's test list. Then compare: a case in your table that the
+author's work does not cover is a finding. Reading their notes first makes you
+check what they thought of, which is exactly what is already covered.
+
 **2. Run the measurements.** The scripts do not burn context: text comes out.
 
 ```bash
@@ -39,6 +49,13 @@ node $SK/verify-motion.mjs     --url <address> --throttle 4   # frames, weight, 
 node $SK/verify-vocabulary.mjs --url <address>          # how narrow the decision vocabulary is
 bash  $SK/check-forbidden.sh <directory>                # bans in source
 ```
+
+If the project declares a browser floor (`browserFloor` in `.uiverify.json` or a
+`browserslist`), also run `node $SK/check-browser-floor.mjs <directory>` and one
+browser check on the floor engine (`FQ_BROWSER=webkit`, or an old Chromium through
+`FQ_BROWSER=chromium FQ_CHROME_PATH=…`). For forms and sheets on a phone, run
+`verify-keyboard.mjs`; for screens that write data, `verify-races.mjs`. Each takes
+the same `--scenario`.
 
 **3. Look with your own eyes.** The scripts do not catch empty cells, columns of
 different heights, a hole under a heading, monotony or cheap colour work. Open
@@ -79,9 +96,16 @@ What to fix (most important first)
 Taste (not violations)
   — suggestions that can be ignored
 
-What I did not check
-  — say it plainly: Safari, a real device, states under data, and so on
+Cases I derived that the work does not cover
+  — <event> — <law> — <what happens instead>
+
+Needs a device or access I do not have
+  — <what> — <why: a real device, a write to shared data, an environment I cannot reach>
 ```
 
-The last section is mandatory. A report without its limits stated misleads more
-than no report at all.
+The last section is mandatory and short. Anything you can check by reading the code
+or running a script — states under data, WebKit, the floor engine, both keyboard
+models, a late response — you check before writing the report; "did not check" is
+not an acceptable line for those. What remains is listed with its reason. A report
+without its limits stated misleads more than no report at all; a report that lists
+checkable things as limits is unfinished work.
