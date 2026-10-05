@@ -36,6 +36,20 @@ except Exception:
 print('\n'.join(str(p) for p in paths))
 " 2>/dev/null || echo ".")
 
+# Nothing changed in the checked paths since the last green run — skip.
+# Measured on a real project: 8 of 11 blocks came on turns that never touched the
+# frontend, and every run costs ~5 s. The stamp is HEAD plus the diff of the paths.
+STAMP_FILE=""
+STAMP=""
+if GIT_DIR_PATH=$(git rev-parse --git-dir 2>/dev/null); then
+  # shellcheck disable=SC2086
+  STAMP=$( { git rev-parse HEAD; git diff HEAD -- $CHECK_PATHS; git ls-files --others --exclude-standard -- $CHECK_PATHS; } 2>/dev/null | sha1sum | cut -d' ' -f1)
+  STAMP_FILE="$GIT_DIR_PATH/ui-verify-gate.stamp"
+  if [ -f "$STAMP_FILE" ] && [ "$(cat "$STAMP_FILE")" = "$STAMP" ]; then
+    exit 0
+  fi
+fi
+
 while IFS= read -r path; do
   [ -z "$path" ] && continue
   [ -e "$path" ] || continue
@@ -51,8 +65,19 @@ done <<EOF
 $CHECK_PATHS
 EOF
 
-if command -v node >/dev/null 2>&1; then
-  if OUTPUT=$(node "$SKILL_DIR/verify-ui.mjs" --config .uiverify.json 2>&1); then
+# The browser part runs only with a scenario of the working screen ("gateScenario"
+# in .uiverify.json). Without one it checks the entry screen — measured: all of its
+# blocks were noise, while the real finds came from scenario runs.
+GATE_SCENARIO=$(python3 -c "
+import json
+try:
+    print(json.load(open('.uiverify.json')).get('gateScenario') or '')
+except Exception:
+    print('')
+" 2>/dev/null)
+
+if [ -n "$GATE_SCENARIO" ] && command -v node >/dev/null 2>&1; then
+  if OUTPUT=$(node "$SKILL_DIR/verify-ui.mjs" --config .uiverify.json --scenario "$GATE_SCENARIO" 2>&1); then
     :
   else
     CODE=$?
@@ -77,5 +102,6 @@ if [ "$FAILED" -eq 1 ]; then
   exit 2
 fi
 
+[ -n "$STAMP_FILE" ] && echo "$STAMP" > "$STAMP_FILE"
 [ -n "$REPORT" ] && echo "$REPORT" >&2
 exit 0
