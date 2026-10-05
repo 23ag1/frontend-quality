@@ -156,7 +156,7 @@ does not count as a change, a layout shift does.
 
 **BLOCK** fails the check: elements overlapping in flow, horizontal scroll,
 critical accessibility, a console error, a failed request, `vh` instead of `dvh`,
-an inline `style="..."`, `!important`, numbering with a leading zero, **internal
+an inline `style="..."`, `!important` (outside the `prefers-reduced-motion` block), numbering with a leading zero, **internal
 terms in visible text**, **a target smaller than 44px**, **invisible focus**,
 **insufficient contrast in any state**, a difference from the baseline above the
 threshold.
@@ -205,7 +205,7 @@ The type scale, line heights by range, tracking, measure, the spacing grid and
 proportions instead of pixels live in the `visual-taste` skill: decisions are made
 there, verified here. The short version, so you do not have to switch for one line:
 
-- fewer sizes with more contrast between them; the minimum in an interface is 12px;
+- fewer sizes with more contrast between them; the minimum size is set by the project; without one it is 16px;
 - line height by range: body 1.4–1.65, captions 1.25–1.5, headings 1.15–1.3; light
   text on dark adds 0.05–0.1;
 - space above a heading 2–3 paragraph spaces, below 0.5–0.75;
@@ -280,6 +280,7 @@ at all.
 
 - Numbering with a leading zero (01, 02, 03) — **nowhere**: not in text, diagrams,
   component data, captions, or through `counter()`. Only 1, 2, 3.
-- Inline `style="..."`, `!important`, `vh` instead of `dvh`.
+- Inline `style="..."`, `!important` (except the reduced-motion reset), `vh` instead of `dvh`,
+  and `dvh` without a fallback: Chrome 107 and older drop the whole declaration.
 - Raw HEX in markup instead of a token.
 - Hard-coded sizes instead of the scale and the tokens.

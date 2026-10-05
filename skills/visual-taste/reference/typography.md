@@ -14,7 +14,8 @@ library with that object in mind.
 - a technical product does **not** need serifs "for warmth" — a tool should look
   like a tool;
 - "premium" does **not** equal the expressive serif everyone is using right now:
-  premium can be a Swiss grotesque, and it can be a monospace;
+  premium can be a Swiss grotesque set with care; monospace faces stay out of
+  interfaces — tabular figures (`tabular-nums`) give aligned numbers instead;
 - a children's product does **not** have to be a rounded display face: children's
   books are set in real type;
 - "modern" does **not** mean a geometric sans. The most modern decision available
@@ -52,8 +53,9 @@ everything:
 The scale is built by ratio: size = base × ratio^step. Use 1.125–1.2 for dense
 interfaces, 1.25–1.333 for marketing. Pick one and stay with it.
 
-**The minimum in an interface is 12px.** Anything smaller reads badly even on a
-good screen and fails accessibility on a phone. Set sizes in `rem` so user
+**The minimum in an interface is 16px unless the project sets its own.** Smaller
+sizes read badly on a phone; hierarchy below that line is built with weight and
+colour, not with size. Set sizes in `rem` so user
 settings are respected.
 
 **Fluid size (`clamp`) is for headings on marketing pages.** In a product
