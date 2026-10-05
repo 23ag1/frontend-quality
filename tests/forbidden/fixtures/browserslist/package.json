@@ -1,0 +1,1 @@
+{ "name": "fixture-browserslist-floor", "private": true, "browserslist": ["chrome >= 100", "safari >= 15", "firefox esr"] }

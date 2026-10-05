@@ -1,0 +1,22 @@
+/* Viewport units: every rule below is named after what it must produce. */
+.bad-vh { height: 100vh; }
+.ok-var-fallback { height: var(--app-h, 100vh); }
+.ok-nested-fallback { max-height: calc(var(--app-h, 100vh) - var(--gap, 0px)); }
+/* .ok-commented { height: 100vh; } */
+/*
+  A multi-line note: .ok-multiline-comment { min-height: 100vh; }
+  and calc(100dvh - 10px) is only prose here.
+*/
+@supports not (height: 1dvh) {
+  .ok-supports-not { height: 100vh; }
+  .h-dvh { height: var(--app-h); }
+}
+.ok-base-overridden { min-height: 100vh; }
+@supports (height: 100dvh) {
+  .ok-base-overridden { min-height: 100dvh; }
+  .ok-supports-calc { height: calc(100dvh - var(--bar, 0px)); }
+}
+.bad-dvh { height: 100dvh; }
+.bad-svh { min-height: 100svh; }
+.bad-calc { height: calc(100dvh - var(--bar)); }
+.ok-dvh-fallback { height: var(--app-h, 100dvh); }

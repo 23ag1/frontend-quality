@@ -1,0 +1,8 @@
+:root {
+  --font-mono: ui-monospace, monospace;
+}
+.bad-font-size { font-size: 14px; }
+.bad-font-size-rem { font-size: 0.75rem; }
+.ok-font-size { font-size: 16px; }
+.bad-mono-family { font-family: var(--font-mono); }
+/* .ok-commented-mono { font-family: monospace; } */

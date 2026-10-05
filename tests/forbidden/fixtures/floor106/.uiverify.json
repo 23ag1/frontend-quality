@@ -1,0 +1,5 @@
+{
+  "_comment": "Fixture: an old-engine floor, a declared network layer, the default 16px floor.",
+  "browserFloor": { "chrome": 106, "safari": 15 },
+  "networkPaths": ["src/shared/api"]
+}

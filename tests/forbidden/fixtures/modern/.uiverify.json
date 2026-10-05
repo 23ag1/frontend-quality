@@ -1,0 +1,7 @@
+{
+  "_comment": "Fixture: a modern floor, palette as a block, a recorded 12px exception, monospace allowed.",
+  "browserFloor": { "chrome": 120, "safari": 17 },
+  "paletteClasses": "block",
+  "minFontPx": 12,
+  "allowMono": true
+}

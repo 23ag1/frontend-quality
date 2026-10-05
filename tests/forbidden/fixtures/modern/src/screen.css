@@ -1,0 +1,7 @@
+/* h-screen is 100vh; these redefinitions make the classes safe. */
+@supports (height: 100dvh) {
+  .h-screen { height: 100dvh; }
+}
+@supports not (height: 1dvh) {
+  .min-h-screen { min-height: var(--app-h); }
+}

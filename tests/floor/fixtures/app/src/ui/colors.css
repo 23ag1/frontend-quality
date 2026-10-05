@@ -1,0 +1,26 @@
+/* oklch() in a comment is prose: .ok-commented { color: oklch(70% 0.1 200); } */
+.block-oklch { color: oklch(70% 0.1 200); }
+@supports (color: oklch(0 0 0)) {
+  .ok-oklch-supports { color: oklch(70% 0.1 200); }
+}
+.flag-oklch-decl {
+  color: #333;
+  color: oklch(70% 0.1 200);
+}
+.block-color-mix { background: color-mix(in srgb, red 40%, white); }
+.flag-grid-rows { transition: grid-template-rows 200ms ease; }
+.block-subgrid { grid-template-rows: subgrid; }
+@supports not (height: 1dvh) {
+  .h-dvh { height: var(--app-h); }
+}
+.ok-app-h { height: var(--app-h, 100dvh); }
+.block-unset-var { height: var(--never-set, 100dvh); }
+.block-dvh { min-height: 100dvh; }
+.flag-balance { text-wrap: balance; }
+:root {
+  --ok-token-overridden: oklch(60% 0.15 250);
+  --block-token-bare: oklch(60% 0.15 250);
+}
+@supports not (color: oklch(0 0 0)) {
+  :root { --ok-token-overridden: #3366ff; }
+}
