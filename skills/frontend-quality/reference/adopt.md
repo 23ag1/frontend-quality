@@ -40,7 +40,16 @@ Four fields need filling in; the rest have sensible defaults:
   are ready to keep green and expand from there;
 - `breakpoints` — the widths you actually live at (do not forget a low viewport,
   390×640: that is where unreachable buttons surface);
-- `ignoreConsole` — noise from third-party scripts (analytics, blockers).
+- `ignoreConsole` — noise from third-party scripts (analytics, blockers);
+- `browserFloor` — the oldest engines your visitors really use. **Take it from your
+  traffic logs, not from the bundler default**: in one production app a quarter of
+  requests came from Chrome 106 on phones that never update, while the build targeted
+  Chrome 111 and the tests ran on a fresh Chromium — nobody saw what broke there.
+  Put the same floor into `browserslist`, see
+  [browser-floor.md](browser-floor.md);
+- `minFontPx`, `allowMono`, `paletteClasses`, `networkPaths` — the project's own
+  thresholds for the source bans (16px, no monospace, palette classes flagged, where
+  the network layer lives).
 
 If your interface is not in English, set `lexicon` and `lexiconFields`: the
 built-in vocabulary of internal terms is English, and your own list replaces it.
@@ -101,8 +110,38 @@ The presence of `.uiverify.json` switches the Stop hook on: a turn will not clos
 while the check is red. The hook needs to be registered once in
 `~/.claude/settings.json` — the install script prints the JSON snippet.
 
-Keep the gate fast: no heavy scenarios in it, addresses only. A gate that takes a
-minute to answer gets switched off.
+What the gate runs: the source bans over `checkPaths`; the browser-floor scan when a
+floor is declared; and the browser check on **one** scenario named in
+`gateScenario`. Without `gateScenario` the browser part does not run — by
+measurement, on an entry screen it produced only noise. Keep that scenario to one
+working screen and one breakpoint; a gate that takes a minute to answer gets
+switched off. The gate reports blocking findings only, and a red state blocks once,
+then waits for a change in `checkPaths`.
+
+## Step 5a. The floor engine and the browser floor (20 minutes)
+
+```bash
+bash /path/to/frontend-quality/scripts/fetch-chromium.sh 106   # prints the executable path
+FQ_BROWSER=chromium FQ_CHROME_PATH=<that path> node $SK/verify-ui.mjs --scenario <yours>
+FQ_BROWSER=webkit node $SK/verify-ui.mjs --scenario <yours>   # the Safari engine
+node $SK/check-browser-floor.mjs src
+```
+
+Add the polyfill first-script from
+[compat-script.js](../../../templates/compat-script.js) if the scan reports
+`AbortSignal.timeout`/`any` or similar, and spread
+[eslint.frontend-quality.mjs](../../../templates/eslint.frontend-quality.mjs) into
+your ESLint config so the same rules hold in the editor.
+
+## Step 5b. Behaviour checks on your scenario (30 minutes)
+
+Export `actions` (what the person does and which request it sends) and
+`keyboardTargets` (forms and sheets) from your scenario, then run
+`verify-races.mjs` and `verify-keyboard.mjs`. Add a `consistency` block to
+`.uiverify.json` and run `verify-consistency.mjs` across your pages. These catch the
+classes that repeated most in the fix history: a double tap sending twice, an older
+answer overwriting a newer screen, the keyboard closing on a tap inside a sheet,
+pages that drift apart.
 
 ## Step 6. CI (15 minutes)
 
@@ -110,8 +149,11 @@ The template is
 [frontend-quality.ci.yml](../../../templates/frontend-quality.ci.yml). A sensible
 split:
 
-- **blocks the pull request**: bans, lint, tests, `verify-ui` — these are
+- **blocks the pull request**: bans, the browser-floor scan, lint, tests,
+  `verify-ui`, `verify-races`, `verify-keyboard`, `verify-consistency` — these are
   deterministic;
+- **a critical scenario on the floor engine and on WebKit** — a matrix job; it is
+  where the breakages your developers never see on their own browser show up;
 - **warns**: performance budgets. Numbers drift on a shared runner; move them to
   blocking after two or three weeks of watching the spread.
 
@@ -132,8 +174,10 @@ what built it. Text-level bans are partly tied to syntax.
 
 | Check | React / JSX | Vue | Svelte | Plain HTML | Tailwind needed |
 |---|---|---|---|---|---|
-| `verify-ui`, `verify-states`, `verify-tap`, `verify-regression`, `verify-motion`, `verify-perf`, `verify-vocabulary` | yes | yes | yes | yes | no |
-| Bans: leading zero, `style="..."`, `!important`, `vh`, internal terms, dash placeholder | yes | yes | yes | yes | no |
+| `verify-ui`, `verify-states`, `verify-tap`, `verify-keyboard`, `verify-races`, `verify-consistency`, `verify-regression`, `verify-motion`, `verify-perf`, `verify-vocabulary` | yes | yes | yes | yes | no |
+| Bans: leading zero, `style="..."`, `!important`, viewport units, internal terms, dash placeholder | yes | yes | yes | yes | no |
+| `check-browser-floor.mjs` (CSS and JS features above the floor) | yes | yes | yes | yes | no |
+| Palette classes, text below the minimum size, monospace | yes | yes | yes | no | **yes** |
 | `fetch` without a timeout | yes | yes | yes | yes | no |
 | Mixed `click` and `touch` with `stopPropagation` | yes | yes | yes | yes | no |
 | Fixed height `h-[240px]` | yes | yes | yes | no | **yes** |
@@ -164,11 +208,13 @@ arithmetic of the frame budget, the layout teardowns, and the requirement to say
 
 ## A realistic first week
 
-1. Day 1 — steps 1–3: install, configure, work through the noise in one directory.
-2. Day 2 — step 4: one scenario for the busiest screen.
+1. Day 1 — steps 1–3: install, configure (with the browser floor from your logs),
+   work through the noise in one directory.
+2. Day 2 — step 4: one scenario for the busiest screen, seeded with
+   production-sized data; step 5a on it.
 3. Day 3 — run `verify-perf` on that scenario and file what it finds; do not fix it
    immediately, see the whole picture first.
-4. Day 4 — the gate and CI.
+4. Day 4 — step 5b, the gate and CI.
 5. Day 5 — regression baselines and your first entry in the failure catalogue.
 
 By the end of the week you have something few teams have: rules a machine checks,

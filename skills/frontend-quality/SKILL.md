@@ -1,6 +1,6 @@
 ---
 name: frontend-quality
-description: A frontend quality standard — the working process, a 50-point rubric, mechanical layout checks in a real browser (layout, states, touch targets, visual regression) and a catalogue of failure modes. Use for any interface work: building from a mock, fixing layout, spacing, states or responsiveness, and before saying "done" or "matches the design". Not for backend or scripts.
+description: A frontend quality standard — the working process, laws of interface behaviour, a 50-point rubric, mechanical checks in a real browser (layout, states, touch and gestures, the on-screen keyboard, double taps and stale responses, consistency across pages, old browsers and the Safari engine, visual regression) and a catalogue of failure modes from production. Use for any interface work: building from a mock, fixing layout, spacing, states, forms or responsiveness, and before saying "done" or "matches the design". Not for backend or scripts.
 user-invocable: true
 argument-hint: "[verify|rubric|adopt]"
 ---
@@ -15,8 +15,12 @@ Skipping any level produces an averaged result that gets rebuilt later.
 |---|---|
 | An application, an admin panel, a point of sale, a dashboard | [reference/product.md](reference/product.md) |
 | A landing page, a promo page | [reference/landing.md](reference/landing.md) |
+| What the interface must do that nobody wrote down | [reference/behaviour-laws.md](reference/behaviour-laws.md) |
+| Which browsers to support and what breaks on old ones | [reference/browser-floor.md](reference/browser-floor.md) |
+| Forms, sheets and the keyboard on a phone | [reference/forms-mobile.md](reference/forms-mobile.md) |
+| Network, stale responses, errors, optimistic updates | [reference/network-state.md](reference/network-state.md) |
 | Before saying "done" | [reference/checklist.md](reference/checklist.md) |
-| What has already broken here (14 failure modes) | [reference/failure-modes.md](reference/failure-modes.md) |
+| What has already broken in production | [reference/failure-modes.md](reference/failure-modes.md) |
 | Layout teardowns | [reference/layout-lessons.md](reference/layout-lessons.md) |
 | Adopting this on a new project | [reference/adopt.md](reference/adopt.md) |
 | Visual decisions and taste | the `visual-taste` skill |
@@ -44,8 +48,19 @@ screenshot: a screenshot holds neither tokens nor fractional values.
 For a new screen or a substantial rework, the contract comes first. It declares:
 the point of focus and the visual hierarchy, the type scale, the colour roles, the
 spacing step, every state (empty, error, loading, disabled) and the button labels.
+A new composition is shown as 2–3 variants on real data before the code; the
+approved one is frozen and committed before the next step.
 
-For a small fix a contract is overkill — go straight to level 3.
+**Every change, small ones included, derives its cases before the code** — for the
+element being touched, not the whole screen: what the person wants here → which
+events change that (scroll, keyboard, back, a late response, a second tap, another
+path to the same action, another width or theme) → what each of the laws in
+[reference/behaviour-laws.md](reference/behaviour-laws.md) demands. Most of what
+owners call "obvious, but you missed it" falls out of this list; a defect that
+returns again and again is a starting state nobody walked through.
+
+For a small fix the rest of the contract is overkill — derive the cases, then go to
+level 3.
 
 ### Level 3. Mechanical checks (before the word "done")
 
@@ -57,30 +72,46 @@ similar, not verified by instrument" instead.
 SK=~/.claude/skills/frontend-quality/scripts
 
 bash  $SK/check-forbidden.sh .                             # bans in the source
-node $SK/verify-ui.mjs         --url http://localhost:3000 # overlaps, scroll, console, axe
-node $SK/verify-states.mjs     --url http://localhost:3000 # hover, focus, contrast in states
-node $SK/verify-tap.mjs        --url http://localhost:3000 # touch targets by real tap
-node $SK/verify-regression.mjs --url http://localhost:3000 # comparison against baselines
-node $SK/verify-motion.mjs     --url http://localhost:3000 --throttle 4  # frames, weight, reduced-motion
-node $SK/verify-perf.mjs       --url http://localhost:3000 --throttle 20 # who ate the budget, by name
-node $SK/verify-vocabulary.mjs --url http://localhost:3000 # how many different values are in use
+node $SK/check-browser-floor.mjs src                       # features above the browser floor
+node $SK/verify-ui.mjs          --url http://localhost:3000 # overlaps, scroll, console, hydration, axe
+node $SK/verify-states.mjs      --url http://localhost:3000 # hover, focus, contrast in states
+node $SK/verify-tap.mjs         --url http://localhost:3000 --gestures # real taps, holds, swipes
+node $SK/verify-keyboard.mjs    --scenario ./e2e/scenarios/form.mjs   # the on-screen keyboard, two models
+node $SK/verify-races.mjs       --scenario ./e2e/scenarios/cart.mjs   # double taps, late answers, settling
+node $SK/verify-consistency.mjs --config .uiverify.json    # the same thing the same on every page
+node $SK/verify-regression.mjs  --url http://localhost:3000 # comparison against baselines
+node $SK/verify-motion.mjs      --url http://localhost:3000 --throttle 4  # frames, cut animations, reduced-motion
+node $SK/verify-perf.mjs        --url http://localhost:3000 --throttle 20 # who ate the budget, by name
+node $SK/verify-vocabulary.mjs  --url http://localhost:3000 # how many different values are in use
 ```
 
 What each one answers:
 
 | Script | The question it answers |
 |---|---|
-| `check-forbidden.sh` | are the source bans broken (leading zeros, inline styles, `vh`, internal terms in visible text) |
-| `verify-ui.mjs` | do elements overlap, is there horizontal scroll, does text escape its box, is anything unreachable, console errors, critical accessibility |
+| `check-forbidden.sh` | are the source bans broken: leading zeros, inline styles, viewport units the floor cannot read, raw colours and palette classes, raw `fetch` outside the network layer, storage read during render, text below the minimum size, internal terms in visible text |
+| `check-browser-floor.mjs` | does the code use CSS or JS that the oldest supported browser does not have, without a fallback or a polyfill |
+| `verify-ui.mjs` | do elements overlap, is there horizontal scroll, does text escape its box, is anything unreachable, console errors, hydration mismatches, broken in-page anchors, critical accessibility — from 320 px to wide, in landscape and with large system text |
 | `verify-states.mjs` | is focus visible, does hover respond, is there enough contrast **in every state** |
-| `verify-tap.mjs` | does the finger hit the target and where does a miss go |
+| `verify-tap.mjs` | does the finger hit the target, where does a miss go, does a hold or a tap right after a swipe land where it should |
+| `verify-keyboard.mjs` | with the keyboard open (the window shrinks, or the bottom is covered): is the field visible, does tapping inside the sheet keep the keyboard and the height, does Back close the overlay |
+| `verify-races.mjs` | does a double tap send twice, does an older answer overwrite a newer screen, does the screen change by itself seconds later, does a failure look like success |
+| `verify-consistency.mjs` | are gutters, headings, columns, row lines, toggle heights and focus rings the same everywhere |
 | `verify-regression.mjs` | did anything break that you did not touch |
-| `verify-motion.mjs` | are we inside the motion and weight budgets |
+| `verify-motion.mjs` | are we inside the motion and weight budgets, is any animation cut before it ends |
 | `verify-perf.mjs` | **who exactly** ate the budget: function, file, frame phase |
 | `verify-vocabulary.mjs` | how narrow the decision vocabulary is |
 
 Playwright and axe-core already live inside the skill — nothing is installed into
 the project, and the scripts run from any directory.
+
+**Engines.** Every browser check runs in Chromium by default. `FQ_BROWSER=webkit`
+runs it in the Safari engine; `FQ_BROWSER=chromium FQ_CHROME_PATH=<path>` runs it in
+an old Chromium that `scripts/fetch-chromium.sh <major>` downloads. Run the critical
+scenarios on the floor engine too: in one production app a quarter of the traffic
+came from a browser four years old, and nothing that ran on a fresh Chromium saw
+its breakages. Checks that need Chromium's debugging protocol (CPU throttle, real
+touch) say "skipped on <engine>" instead of passing quietly.
 
 The project config is `.uiverify.json` in the root (addresses, scenarios,
 breakpoints, exclusions); the template is `reference/uiverify.example.json`.
@@ -94,6 +125,14 @@ whole tree would be red always — which means it would simply be switched off.
 ```json
 { "checkPaths": ["src", "packages/ui/src"] }
 ```
+
+The gate runs three things: the source bans, the browser-floor scan (only when
+`browserFloor` or a browserslist is declared) and `verify-ui.mjs` on **one
+scenario** named in `gateScenario` — the working screen, one breakpoint, an answer
+in seconds. Without `gateScenario` the browser part does not run at all: on an
+entry screen it produced nothing but noise. The gate reports blocking findings
+only (warnings are counted), skips when nothing in `checkPaths` changed, and a red
+state blocks once — it does not hold every later turn of every session hostage.
 
 ## Scenarios: check the state where the defects live
 
@@ -132,6 +171,23 @@ Only `open` (or `url`) is required. Scenarios can also be listed in
 `.uiverify.json`, and then every check picks them up at once. Keep heavy scenarios
 out of the gate: it has to answer in seconds or it will be switched off.
 
+Optional exports feed the behaviour checks (the contracts are in the header of each
+script and in `templates/scenario.example.mjs`):
+
+- `actions` — `[{ name, run, request }]`: what the person does and which request it
+  sends; `verify-races.mjs` taps each twice, delays and reorders its answers, fails it
+  once, and watches the screen settle;
+- `readState` and `successText` — how to read what the screen claims, for the race
+  and failure checks;
+- `keyboardTargets` — `[{ name, open, field, inside }]`: the forms and sheets
+  `verify-keyboard.mjs` opens with the keyboard up;
+- `ignoreConsole`, `ignoreRequests` — known noise of this scenario.
+
+**Test data is production-sized.** A list check on two cards passes while production
+shows forty-seven; a scenario that seeds two rows proves nothing about the screen
+people use. Seed the worst real case: the longest names, the most rows, duplicates,
+empty fields, old saved values.
+
 **How much this changes.** On the project where this was worked out, checking by
 address found almost nothing; the same set run through a scenario with real data
 immediately showed 206 ms of forced layout and a 76 ms delay before the handler.
@@ -155,15 +211,28 @@ does not count as a change, a layout shift does.
 ## Severity levels
 
 **BLOCK** fails the check: elements overlapping in flow, horizontal scroll,
-critical accessibility, a console error, a failed request, `vh` instead of `dvh`,
-an inline `style="..."`, `!important` (outside the `prefers-reduced-motion` block), numbering with a leading zero, **internal
-terms in visible text**, **a target smaller than 44px**, **invisible focus**,
-**insufficient contrast in any state**, a difference from the baseline above the
-threshold.
+critical accessibility, a console error, a hydration mismatch, a failed request,
+a bare `vh`, and — when the floor is below Chrome 108 — a bare `dvh`/`svh`/`lvh` or
+one inside `calc()`; a CSS or JS feature above the browser floor with no fallback;
+an inline `style="..."`, `!important` (outside the `prefers-reduced-motion` block),
+numbering with a leading zero, **internal terms in visible text**, **a target
+smaller than 44px**, **invisible focus**, **insufficient contrast in any state**,
+a focused field hidden by the keyboard, a tap inside a sheet that drops the
+keyboard, a request sent twice by a double tap, an older answer overwriting a newer
+screen, a screen that changes by itself, an animation cut before it ends because
+its element was removed, different gutters or headings across pages, a difference
+from the baseline above the threshold.
 
-**FLAG** reports without failing — a human decides: raw HEX, a fixed height, a
-dynamic `style={{ }}`, `dangerouslySetInnerHTML`, no `prefers-reduced-motion` while
-animations exist, a miss landing next to a large target.
+**FLAG** reports without failing — a human decides: raw HEX, palette classes
+(`bg-blue-500`), a fixed height, a dynamic `style={{ }}`, `dangerouslySetInnerHTML`,
+raw `fetch` outside the network layer, storage read during render, text below the
+project's minimum size, monospace text, `env(safe-area-inset-*)` without
+`viewport-fit=cover`, a feature above the floor that has a guard, no
+`prefers-reduced-motion` while animations exist, a miss landing next to a large
+target, a broken in-page anchor, a focus ring after a mouse click.
+
+The thresholds are project settings in `.uiverify.json`: `browserFloor`,
+`minFontPx`, `allowMono`, `paletteClasses`, `networkPaths` (see the template).
 
 A legitimate exception to the internal-terms vocabulary is marked in the code:
 `ui-lexicon-ok` in a comment above the line clears the finding (for example when a
@@ -216,13 +285,19 @@ there, verified here. The short version, so you do not have to switch for one li
 
 Two catalogues, different in origin:
 
-- [reference/failure-modes.md](reference/failure-modes.md) — **14 failure modes
-  collected by going through 190 fix commits of a real project**: the tap that
-  disappears or fires twice; the keyboard after a panel collapses; a sticky bar
-  inside a scroller; text that does not fit a card; layer order; infinite
-  re-renders; a loading skeleton that never goes away; the frontend acting as a
-  false source of truth. Each with a cause, a cure and the check that catches it.
+- [reference/failure-modes.md](reference/failure-modes.md) — **failure modes
+  collected from the fix history of a production app** (about 750 fix commits and
+  a month of classified fixes): the tap that disappears or fires twice; the
+  keyboard and the sheets; old browsers in the field; hydration; stale answers
+  overwriting fresh edits; the screen changing by itself; text that does not fit;
+  layer order; the eternal skeleton. Each with a cause, a cure and the check that
+  catches it.
 - [reference/layout-lessons.md](reference/layout-lessons.md) — layout teardowns.
+
+In that month three quarters of the fixes were not missing knowledge: the knowledge
+existed and was not applied. Half were repeats of a class fixed before. A written
+lesson did not stop a repeat; a check did. That is why this skill turns lessons into
+scripts and fixtures, and why a rule without a check is treated as a draft.
 
 ## Why such defects appear
 
@@ -234,6 +309,35 @@ Two catalogues, different in origin:
   text breaks on the first content change.
 - **A written rule that is never checked does not work.** A ban is a line in
   `check-forbidden.sh`, not a paragraph in a document.
+- **One path fixed out of several.** The same action reachable from two screens, or
+  the same logic written twice (for a local record and for one that came from
+  another system), got the fix on one side only. Before a fix, list every path to
+  the action; the test covers each of them.
+- **An old assumption nobody revisited.** A behaviour designed for a draft kept
+  running after the data started going straight to the server. When the conditions
+  change, grep everything that relied on the old ones.
+
+## How the work is done
+
+These are the steps that, by the fix history, decide whether a defect comes back.
+
+1. **Behaviour along every entry path and state, written before the code.** Not
+   reproduced — then the change is "a fix by hypothesis", and the report says so.
+2. **A guard test is shown red on the old code once.** A test that was never red
+   proves nothing; one that passed on broken code happened more than once.
+3. **The second defect of the same class is a mechanism, not a third patch.** Name
+   the class, price the shared fix (a primitive, one network layer, one geometry
+   model, an id per entity), file it; a patch in place is allowed only as temporary,
+   pointing to that task.
+4. **Fix the primitive that others bypass.** If three screens build their own sheet
+   because the shared one cannot do something, the shared one gets that ability.
+   One focus ring, one field, one back link for the whole site.
+5. **One truth, one definition.** A value that lives in CSS and in JS, a skeleton
+   and the row it stands for, a document and the code — derive one from the other.
+6. **An early return gets its side effects listed.** Everything below it (a metric,
+   a scroll, closing a sheet, a request) is decided one by one.
+7. **"Done" names its stage** — merged, deployed to staging, live — and is said after
+   looking at that stage itself (the live bundle, not the push).
 
 ## Text in the interface
 
@@ -272,15 +376,27 @@ Call it explicitly before hand-off, **not after every edit**: reflexively verify
 each step with subagents burns tokens without adding quality. One pass at the end,
 with a fresh eye, is a different matter.
 
-The report must contain a "what I did not check" section (Safari, a real device,
-states under data). A report without its limits stated misleads more than no report
-at all.
+Before looking at what was done, it derives the cases itself with
+[reference/behaviour-laws.md](reference/behaviour-laws.md) for the touched element;
+a case it finds that the implementation never considered is a finding.
+
+Anything that can be checked by reading or running is checked before the report.
+The "what I did not check" section lists only what needed a real device, a write,
+or access the agent did not have — each with that reason. "Did not check" as a
+conclusion of something checkable is not a limit, it is unfinished work.
 
 ## Bans that apply to everything
 
 - Numbering with a leading zero (01, 02, 03) — **nowhere**: not in text, diagrams,
   component data, captions, or through `counter()`. Only 1, 2, 3.
-- Inline `style="..."`, `!important` (except the reduced-motion reset), `vh` instead of `dvh`,
-  and `dvh` without a fallback: Chrome 107 and older drop the whole declaration.
-- Raw HEX in markup instead of a token.
+- Inline `style="..."`, `!important` (except the reduced-motion reset).
+- Viewport height: a bare `100vh` is taller than the visible area on Android; a bare
+  `dvh` is dropped whole by Chrome 107 and older; `calc(100dvh - x)` is accepted by
+  Chrome 106 and resets to `auto`; a `100vh; 100dvh` pair is merged by minifiers.
+  The one form that works everywhere: `var(--app-h, 100dvh)` with `--app-h` set
+  from `window.innerHeight` by a script (details in
+  [reference/browser-floor.md](reference/browser-floor.md)).
+- Raw HEX and default palette classes in components instead of a role token.
 - Hard-coded sizes instead of the scale and the tokens.
+- Text below 16px and monospace text, unless the project records an exception
+  (`minFontPx`, `allowMono`) — a dense working tool may need 12px, a site does not.

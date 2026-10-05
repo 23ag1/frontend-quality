@@ -21,4 +21,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      # The regression fixtures drive a real browser, so the browser goes inside
+      # the skill exactly as install.sh puts it there for users.
+      - name: Browser inside the skill
+        working-directory: skills/frontend-quality
+        run: npm ci && npx playwright install --with-deps chromium
       - run: bash scripts/check-plugin.sh

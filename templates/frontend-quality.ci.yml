@@ -18,9 +18,11 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # Path to the scripts. Keep the kit in the repository (as here) or install it
-  # from ~/.claude — in that case install.sh does the placement step.
-  SK: docs/frontend-kit/claude/skills/frontend-quality/scripts
+  # Where the plugin is cloned for the run. Pin a tag or a commit: a check that
+  # changes under you on a random Tuesday reads as your regression.
+  FQ_REPO: https://github.com/23ag1/frontend-quality.git
+  FQ_REF: main
+  SK: .fq/skills/frontend-quality/scripts
 
 jobs:
   # Job ids must be ASCII: anything else fails the file before a step runs.
@@ -29,8 +31,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - run: git clone --depth 1 --branch "$FQ_REF" "$FQ_REPO" .fq
       # No dependencies, no browser: plain source analysis, seconds.
       - run: bash "$SK/check-forbidden.sh" src
+      # CSS and JS above the browser floor (browserFloor in .uiverify.json or
+      # your browserslist). Static, seconds.
+      - run: node "$SK/check-browser-floor.mjs" src
 
   tests:
     name: Lint and tests
@@ -67,8 +73,9 @@ jobs:
 
       - name: Install the checks
         run: |
+          git clone --depth 1 --branch "$FQ_REF" "$FQ_REPO" .fq
           cd "$SK/.."
-          npm install --no-audit --no-fund
+          npm ci --no-audit --no-fund
           npx --yes playwright install --with-deps chromium
 
       - name: Layout, accessibility, console
@@ -78,6 +85,14 @@ jobs:
         run: |
           node "$SK/verify-states.mjs" --url http://127.0.0.1:3011/
           node "$SK/verify-tap.mjs" --url http://127.0.0.1:3011/
+
+      - name: Behaviour on the working screen
+        # Your scenario exports actions, keyboardTargets and readState — see the
+        # header of each script.
+        run: |
+          node "$SK/verify-races.mjs" --scenario e2e/scenarios/main.mjs
+          node "$SK/verify-keyboard.mjs" --scenario e2e/scenarios/main.mjs
+          node "$SK/verify-consistency.mjs" --config .uiverify.json
 
       - name: Performance
         # Numbers on a shared runner drift: the same code on a loaded machine
@@ -95,3 +110,43 @@ jobs:
             .uiverify-out/**
             perf.json
           retention-days: 7
+
+  engines:
+    # The critical scenario on the engines your visitors use and you do not:
+    # the Safari engine and the oldest Chromium in your traffic logs. This is
+    # where breakages nobody sees on their own browser show up.
+    name: Engines (${{ matrix.engine }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [webkit, chromium-floor]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Start the production build
+        run: |
+          npm ci
+          npm run build
+          npm run start -- --port 3011 &
+          npx wait-on -t 90000 http://127.0.0.1:3011/
+      - name: Install the checks and the engine
+        run: |
+          git clone --depth 1 --branch "$FQ_REF" "$FQ_REPO" .fq
+          (cd "$SK/.." && npm ci --no-audit --no-fund)
+          if [ "${{ matrix.engine }}" = webkit ]; then
+            (cd "$SK/.." && npx --yes playwright install --with-deps webkit)
+          else
+            (cd "$SK/.." && npx --yes playwright install-deps chromium)
+            echo "FQ_CHROME_PATH=$(bash .fq/scripts/fetch-chromium.sh 106 | tail -1)" >> "$GITHUB_ENV"
+          fi
+      - name: Critical scenario
+        env:
+          FQ_BROWSER: ${{ matrix.engine == 'webkit' && 'webkit' || 'chromium' }}
+        run: |
+          node "$SK/verify-ui.mjs" --config .uiverify.json --scenario e2e/scenarios/main.mjs
+          node "$SK/verify-keyboard.mjs" --scenario e2e/scenarios/main.mjs

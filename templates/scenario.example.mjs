@@ -10,6 +10,8 @@
  *   node $SK/verify-ui.mjs   --scenario ./e2e/scenarios/cart.mjs
  *   node $SK/verify-tap.mjs  --scenario ./e2e/scenarios/cart.mjs --gestures
  *   node $SK/verify-perf.mjs --scenario ./e2e/scenarios/cart.mjs --throttle 20
+ *   node $SK/verify-races.mjs --scenario ./e2e/scenarios/cart.mjs
+ *   node $SK/verify-keyboard.mjs --scenario ./e2e/scenarios/cart.mjs
  *
  * Only `open` is required (or an exported `url`, if no login is needed).
  */
@@ -39,10 +41,12 @@ export const ignoreRequests = [];
  * If you already have an e2e suite, do not write this twice: import your own
  * function that launches the browser with mocks and return its result.
  */
-export async function open() {
-  const browser = await chromium.launch({
-    args: ['--no-sandbox', '--disable-dev-shm-usage'],
-  });
+export async function open({ launch } = {}) {
+  // `launch` starts the engine chosen by FQ_BROWSER / --browser (Chromium, the
+  // Safari engine, an old Chromium); fall back to Chromium when run on its own.
+  const browser = launch
+    ? await launch()
+    : await chromium.launch({ args: ['--no-sandbox', '--disable-dev-shm-usage'] });
   const context = await browser.newContext({
     viewport: { width: 390, height: 844 },
     hasTouch: true,
@@ -101,5 +105,39 @@ export const interactions = [
       await page.mouse.wheel(0, 800);
       await page.waitForTimeout(300);
     },
+  },
+];
+
+/**
+ * Races (verify-races.mjs): one user action each, the request it sends, and how
+ * to read and reload what the screen claims. The checks tap it twice, delay and
+ * reorder its answer, fail it once, and watch the screen settle.
+ */
+export const actions = [
+  {
+    name: 'add the first item',
+    run: (page) => page.click('[data-cart-row] [aria-label="Add"]', { timeout: 1000 }),
+    request: /POST .*\/api\/cart/, // the request this action sends
+    settleMs: 4000, // how long the screen must stay still afterwards
+  },
+];
+/** What the late-answer probe compares. */
+export const readState = (page) => page.textContent('[data-cart-row] [data-qty]');
+/** How the data is reloaded (or a RegExp: the app polls by itself). */
+export const refresh = (page) => page.click('[aria-label="Refresh"]');
+export const refreshRequest = /\/api\/cart$/;
+/** Text that must never appear after a failed request. */
+export const successText = ['Added', 'Saved'];
+
+/**
+ * Keyboard (verify-keyboard.mjs): forms and sheets opened with the on-screen
+ * keyboard up, in both models — the window shrinks, or the bottom is covered.
+ */
+export const keyboardTargets = [
+  {
+    name: 'quantity sheet',
+    open: async (page) => { await page.click('[data-cart-row] [data-qty]'); },
+    field: 'input[aria-label="Quantity"]', // must stay visible above the keyboard
+    inside: '[role="dialog"]', // taps inside must keep the keyboard and the height
   },
 ];

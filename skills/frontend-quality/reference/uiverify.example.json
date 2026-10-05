@@ -4,6 +4,20 @@
   "checkPaths": [
     "src"
   ],
+  "_browserFloor": "The oldest engines real visitors use — take it from your traffic logs, not from the bundler default. check-forbidden.sh and check-browser-floor.mjs read it; the gate runs the floor check only when a floor is declared here or in a browserslist.",
+  "browserFloor": {
+    "chrome": 106,
+    "safari": 15
+  },
+  "_networkPaths": "Where the one network layer lives. A raw fetch( anywhere else is flagged.",
+  "networkPaths": [
+    "src/shared/api"
+  ],
+  "_minFontPx": "Smallest allowed text size. 16 by default; a dense working tool records its exception here (for example 12), and the reason in the project notes.",
+  "minFontPx": 16,
+  "allowMono": false,
+  "_paletteClasses": "Tailwind default palette classes (bg-blue-500) in components: \"flag\" (default) or \"block\" once the project has role tokens.",
+  "paletteClasses": "flag",
   "urls": [
     "http://localhost:3000/",
     "http://localhost:3000/pricing/"
@@ -15,7 +29,14 @@
       "module": "e2e/scenarios/cart.mjs"
     }
   ],
+  "_gateScenario": "The Stop hook runs the browser check only with this scenario: the working screen, one breakpoint, answering in seconds. Without it the hook checks the source only — on an entry screen the browser part produced nothing but noise.",
+  "gateScenario": "e2e/scenarios/cart.mjs",
   "breakpoints": [
+    {
+      "name": "smallest",
+      "width": 320,
+      "height": 568
+    },
     {
       "name": "low",
       "width": 390,
@@ -25,6 +46,11 @@
       "name": "mobile",
       "width": 390,
       "height": 844
+    },
+    {
+      "name": "landscape",
+      "width": 844,
+      "height": 390
     },
     {
       "name": "tablet",
@@ -47,6 +73,8 @@
       "height": 1080
     }
   ],
+  "_fontScale": "Root font size multiplier for one extra verify-ui pass: 1.25 catches layouts that break with large system text.",
+  "fontScale": 1.25,
   "outDir": ".uiverify-out",
   "baselineDir": ".uiverify-baseline",
   "overlapSelector": "h1, h2, h3, h4, p, li, button, a, label, span[class], td, th",
@@ -81,5 +109,33 @@
     "user_id",
     "product_id",
     "order_id"
-  ]
+  ],
+  "_consistency": "verify-consistency.mjs: the same things must be the same on every page and in every row.",
+  "consistency": {
+    "urls": [
+      "http://localhost:3000/",
+      "http://localhost:3000/pricing/"
+    ],
+    "content": "main",
+    "heading": "h1",
+    "groups": [
+      {
+        "name": "cards",
+        "item": ".card",
+        "rows": [
+          "h3",
+          ".price"
+        ]
+      }
+    ],
+    "toggles": [
+      {
+        "name": "tabs",
+        "trigger": "[role=tab]",
+        "section": "[role=tabpanel]"
+      }
+    ],
+    "buttons": "button, a.btn",
+    "maxWords": null
+  }
 }

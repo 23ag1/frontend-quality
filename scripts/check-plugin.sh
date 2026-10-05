@@ -6,7 +6,10 @@
 #   2. every skill has a SKILL.md with name and description;
 #   3. not a single broken relative link in the documentation;
 #   4. every check script runs and says clearly what it is missing;
-#   5. the templates are syntactically intact.
+#   5. not a single line of Cyrillic — the plugin is published in English;
+#   6. every check passes its own regression fixture (tests/<name>/run.mjs):
+#      known false alarms stay silent, real defects stay reported;
+#   7. the templates are syntactically intact.
 #
 # Usage: bash scripts/check-plugin.sh   (from the plugin root)
 # Exit: 0 — plugin intact, 1 — something is broken.
@@ -70,7 +73,8 @@ else
 fi
 
 echo "4. Check scripts"
-for s in skills/frontend-quality/scripts/*.mjs; do
+for s in skills/*/scripts/*.mjs skills/*/scripts/lib/*.mjs templates/*.mjs templates/*.js; do
+  [ -e "$s" ] || continue
   if node --check "$s" 2>/dev/null; then ok "$(basename "$s") — syntax"; else fail "$(basename "$s") — syntax error"; fi
 done
 for s in skills/frontend-quality/scripts/*.sh hooks/*.sh scripts/*.sh; do
@@ -89,7 +93,43 @@ else
   fail "verify-ui with no arguments printed something unclear: $(echo "$OUT" | head -1)"
 fi
 
-echo "5. Templates"
+echo "5. Language"
+# The plugin is published in English only. A stray line in another script slips
+# in easily when lessons are carried over from a project kept in another
+# language, so it is checked, not remembered.
+NON_ASCII_SCRIPT=$(grep -rlP '[\x{0400}-\x{04FF}]' --exclude-dir=node_modules --exclude-dir=.git \
+  --exclude-dir=.uiverify-out --exclude='package-lock.json' . 2>/dev/null || true)
+if [ -n "$NON_ASCII_SCRIPT" ]; then
+  echo "$NON_ASCII_SCRIPT" | while read -r f; do fail "$f — Cyrillic text in an English-only plugin"; done
+else
+  ok "no Cyrillic text"
+fi
+
+echo "6. Regression tests"
+# Every check ships with a fixture of known false alarms and real defects
+# (tests/<name>/run.mjs). They need the browser installed inside the skill;
+# without it they are skipped with a note, never counted as passed.
+# Source-only suites (no browser) always run.
+SOURCE_ONLY="tests/forbidden/run.mjs tests/floor/run.mjs"
+HAS_BROWSER=0
+[ -d skills/frontend-quality/node_modules/playwright ] && HAS_BROWSER=1
+for t in tests/*/run.mjs; do
+  [ -e "$t" ] || continue
+  case " $SOURCE_ONLY " in
+    *" $t "*) ;;
+    *) if [ "$HAS_BROWSER" -eq 0 ]; then
+         ok "$t — skipped: browser not installed in the skill (npm install && npx playwright install chromium in skills/frontend-quality)"
+         continue
+       fi ;;
+  esac
+  if OUT=$(node "$t" 2>&1); then
+    ok "$t — $(echo "$OUT" | tail -1)"
+  else
+    fail "$t — $(echo "$OUT" | grep -E 'FAIL|did not run|Error|EADDRINUSE' | head -3 | tr '\n' ' ')"
+  fi
+done
+
+echo "7. Templates"
 if node --check templates/scenario.example.mjs 2>/dev/null; then ok "scenario template — syntax"; else fail "scenario template is broken"; fi
 if python3 -c "
 import sys

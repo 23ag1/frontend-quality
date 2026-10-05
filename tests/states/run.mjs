@@ -23,7 +23,7 @@ import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-const PORT = Number(process.env.PORT || 8977);
+const REQUESTED_PORT = Number(process.env.PORT || 0); // 0: any free port, so parallel runs never collide
 const html = readFileSync(new URL("./page.html", import.meta.url));
 const script = fileURLToPath(new URL("../../skills/frontend-quality/scripts/verify-states.mjs", import.meta.url));
 
@@ -35,7 +35,8 @@ const server = createServer((_req, res) => {
   res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
   res.end(html);
 });
-await new Promise((done) => server.listen(PORT, "127.0.0.1", done));
+await new Promise((done) => server.listen(REQUESTED_PORT, "127.0.0.1", done));
+const PORT = server.address().port;
 
 const out = await new Promise((done) => {
   const run = spawn("node", [script, "--url", `http://127.0.0.1:${PORT}/`], { encoding: "utf8" });
