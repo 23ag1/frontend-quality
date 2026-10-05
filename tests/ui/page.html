@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UI check fixture</title>
+<style>
+  body { margin: 0; font: 1rem/1.5 system-ui; color: #111; background: #fff; }
+  main { padding: 1rem; max-width: 40rem; }
+  nav a { display: inline-block; padding: 0.75rem; }
+  section { margin-top: 2rem; }
+  /* A long page: its full-page shot is over 7000 px tall, too big for an agent
+     to read, so the check must write a downscaled preview next to it. */
+  .long { height: 7200px; background: linear-gradient(#fff, #eef); }
+</style>
+<main>
+  <h1>Fixture</h1>
+  <nav aria-label="Sections">
+    <!-- Fine: the section exists. -->
+    <a href="#faq">Questions</a>
+    <!-- A REAL defect: there is no element with id "pricing". -->
+    <a href="#pricing">Pricing</a>
+    <!-- Not a section link: a bare "#" and a hash route stay silent. -->
+    <a href="#">Top</a>
+    <a href="#/settings">Settings</a>
+  </nav>
+  <section id="faq"><h2>Questions</h2><p>Answers.</p></section>
+  <div class="long"></div>
+</main>
+<script>
+  // Noise the scenario declares in ignoreConsole: must NOT be reported.
+  console.error('harness noise: mock for /api/avatar is missing');
+  // A REAL defect: what a production React build prints for a hydration mismatch.
+  console.error('Uncaught Error: Minified React error #418; visit https://react.dev/errors/418 for the full message');
+  // The same class as an uncaught exception, the way it reaches a page in development.
+  setTimeout(() => { throw new Error('Hydration failed because the initial UI does not match what was rendered on the server.'); }, 0);
+</script>
+</html>

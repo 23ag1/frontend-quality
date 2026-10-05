@@ -254,7 +254,7 @@ async function measureIdle(page, cdp, ms = 3000) {
         // except "placeholder": that word is Tailwind's own utility prefix for
         // styling an input's placeholder TEXT COLOR (placeholder-gray-400 and
         // friends), unrelated to loading skeletons. Matching it flagged any
-        // styled search input as a stuck skeleton on every page (f2m_waiter-nkcb).
+        // styled search input as a stuck skeleton on every page.
         '[aria-busy="true"], .animate-pulse, [class*="skeleton" i], [class*="shimmer" i], [data-skeleton], [data-loading]'
       ).length;
       const spinners = document.querySelectorAll('[role="progressbar"], .animate-spin').length;

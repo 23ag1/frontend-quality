@@ -1,0 +1,7 @@
+{
+  "_comment": "Two widths keep the test fast; both are new defaults (smallest phone, landscape phone).",
+  "breakpoints": [
+    { "name": "smallest", "width": 320, "height": 568 },
+    { "name": "landscape", "width": 844, "height": 390 }
+  ]
+}

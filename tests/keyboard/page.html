@@ -1,0 +1,114 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Keyboard check fixture</title>
+<style>
+  body { margin: 0; font: 16px/1.4 system-ui; color: #111; background: #fff; }
+  main { padding: 16px; }
+  .row { height: 64px; border-bottom: 1px solid #eee; }
+  .open { font: inherit; padding: 12px 16px; margin: 4px; }
+  .sheet { position: fixed; left: 0; right: 0; background: #fafafa; border-top: 1px solid #ccc;
+           display: flex; flex-direction: column; gap: 8px; padding: 12px; box-sizing: border-box; }
+  .sheet[hidden], .backdrop[hidden] { display: none; }
+  /* Both sheets dim the page behind them: that makes them full-screen overlays. */
+  .backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, .3); }
+  .sheet .list { flex: 1; overflow: auto; min-height: 0; }
+  .sheet .list div { height: 40px; border-bottom: 1px solid #eee; }
+  .sheet input { font: inherit; padding: 10px; }
+  .sheet .controls { display: flex; gap: 8px; }
+  .sheet button { font: inherit; min-width: 48px; min-height: 48px; }
+
+  /* GOOD: a fixed height; the bottom edge follows the keyboard, so the sheet
+     rises above it in the overlay model and stays put in the resize model. Its
+     list keeps scrolling to itself. */
+  #good { height: 320px; bottom: var(--kb, 0px); }
+  #good .list { overscroll-behavior: contain; }
+
+  /* BROKEN: glued to the bottom of the layout viewport, height taken from the
+     visual viewport (changes whenever the keyboard does), no scroll containment. */
+  #broken { bottom: 0; }
+</style>
+
+<main>
+  <h1>Keyboard fixture</h1>
+  <button class="open" id="open-good">Open good sheet</button>
+  <button class="open" id="open-broken">Open broken sheet</button>
+  <div id="rows"></div>
+</main>
+
+<!-- GOOD: buttons keep focus in the field (pointerdown/mousedown default
+     prevented), history back closes the sheet. -->
+<div class="backdrop" id="good-backdrop" hidden></div>
+<div class="sheet" id="good" role="dialog" aria-label="Good sheet" hidden>
+  <button class="keep" id="good-close">Close</button>
+  <div class="list"></div>
+  <input id="good-field" aria-label="Quantity, good" value="1">
+  <div class="controls">
+    <button class="keep" id="good-minus" aria-label="Less">−</button>
+    <button class="keep" id="good-plus" aria-label="More">+</button>
+  </div>
+</div>
+
+<!-- BROKEN: plain buttons take focus, height follows visualViewport, history
+     back leaves the page. -->
+<div class="backdrop" id="broken-backdrop" hidden></div>
+<div class="sheet" id="broken" role="dialog" aria-label="Broken sheet" hidden>
+  <div class="list"></div>
+  <input id="broken-field" aria-label="Quantity, broken" value="1">
+  <div class="controls">
+    <button id="broken-minus" aria-label="Less">−</button>
+    <button id="broken-plus" aria-label="More">+</button>
+  </div>
+</div>
+
+<script>
+  const rows = document.getElementById('rows');
+  for (let i = 0; i < 40; i += 1) rows.insertAdjacentHTML('beforeend', `<div class="row">Row ${i + 1}</div>`);
+  for (const list of document.querySelectorAll('.sheet .list')) {
+    for (let i = 0; i < 20; i += 1) list.insertAdjacentHTML('beforeend', `<div>Item ${i + 1}</div>`);
+  }
+
+  const good = document.getElementById('good');
+  const broken = document.getElementById('broken');
+  const vv = window.visualViewport;
+
+  function layout() {
+    const height = vv ? vv.height : innerHeight;
+    const top = vv ? vv.offsetTop : 0;
+    good.style.setProperty('--kb', `${Math.max(0, innerHeight - height - top)}px`);
+    broken.style.height = `${Math.round(height * 0.6)}px`;
+  }
+  if (vv) vv.addEventListener('resize', layout);
+  addEventListener('resize', layout);
+  layout();
+
+  for (const keep of document.querySelectorAll('.keep')) {
+    keep.addEventListener('pointerdown', (e) => e.preventDefault());
+    keep.addEventListener('mousedown', (e) => e.preventDefault());
+  }
+  const step = (id, delta) => {
+    const field = document.getElementById(id);
+    field.value = String(Number(field.value) + delta);
+  };
+  document.getElementById('good-minus').onclick = () => step('good-field', -1);
+  document.getElementById('good-plus').onclick = () => step('good-field', 1);
+  document.getElementById('broken-minus').onclick = () => step('broken-field', -1);
+  document.getElementById('broken-plus').onclick = () => step('broken-field', 1);
+
+  document.getElementById('open-good').onclick = () => {
+    good.hidden = false;
+    document.getElementById('good-backdrop').hidden = false;
+    history.pushState({ sheet: 'good' }, '');
+  };
+  const closeGood = () => {
+    good.hidden = true;
+    document.getElementById('good-backdrop').hidden = true;
+  };
+  document.getElementById('good-close').onclick = () => history.back();
+  addEventListener('popstate', closeGood);
+
+  document.getElementById('open-broken').onclick = () => {
+    broken.hidden = false;
+    document.getElementById('broken-backdrop').hidden = false;
+  };
+</script>

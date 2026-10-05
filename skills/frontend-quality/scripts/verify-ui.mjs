@@ -3,25 +3,32 @@
  * Mechanical layout check in a real browser.
  *
  * It checks what reading the code cannot: overlapping boxes, horizontal scroll,
- * accessibility, console errors and failed requests — at every declared width.
- *
+ * accessibility, console errors, hydration mismatches, failed requests and in-page
+ * links that lead nowhere — at every declared width.
  *
  * Usage:
  *   node verify-ui.mjs --url http://localhost:3000
  *   node verify-ui.mjs --config .uiverify.json
+ *   node verify-ui.mjs --url http://localhost:3000 --font-scale 1.25   # large system text
+ *   FQ_BROWSER=webkit node verify-ui.mjs --url http://localhost:3000    # another engine
  *
  * Exit: 0 — clean, 1 — violations found, 2 — could not run.
  */
 
 import { readFileSync, existsSync, mkdirSync } from 'node:fs';
 import { resolve, join } from 'node:path';
-import { parseArgs, resolveTargets, closeQuietly } from './lib/session.mjs';
+import { parseArgs, resolveTargets, closeQuietly, writeScreenshot, engineOf } from './lib/session.mjs';
 
 const DEFAULT_BREAKPOINTS = [
+  // The smallest phone still in use: 320 px is where buttons in a row stop fitting.
+  { name: 'smallest', width: 320, height: 568 },
   // The low viewport is a deliberate entry: it surfaces forms whose bottom you
   // cannot reach and button bars that have slid off the edge.
   { name: 'low', width: 390, height: 640 },
   { name: 'mobile', width: 390, height: 844 },
+  // A phone turned sideways: a 390 px tall window is where fixed headers and
+  // bottom bars eat the whole screen.
+  { name: 'landscape', width: 844, height: 390 },
   { name: 'tablet', width: 768, height: 1024 },
   { name: 'laptop', width: 1280, height: 800 },
   { name: 'desktop', width: 1440, height: 900 },
@@ -31,6 +38,15 @@ const DEFAULT_BREAKPOINTS = [
 // A generous line-height inflates the box while the glyphs never touch.
 // So an overlap only counts when a noticeable share of the area is covered.
 const OVERLAP_TOLERANCE_PX = 4;
+
+// React reports a hydration mismatch with a number in production builds and with
+// words in development ones. Either way the server and the first client render
+// disagreed: React threw the server HTML away (a flash, lost input, layout jump)
+// or, worse, kept the wrong text.
+const HYDRATION_PATTERN =
+  /Minified React error #(418|423|425)\b|Hydration failed|hydration mismatch|(did not|didn't) match[^]*server|server[^]*(did not|didn't) match/i;
+const HYDRATION_MEANING =
+  'hydration mismatch — the first render differs from the server (often storage or Date read during render)';
 
 function loadConfig(args) {
   const configPath = resolve(args.config || '.uiverify.json');
@@ -50,6 +66,9 @@ function loadConfig(args) {
     // selector: automation cannot tell intent from breakage.
     ignoreOverlap: config.ignoreOverlap || [],
     skipAxe: config.skipAxe === true,
+    // Large system text: the root font size is raised, so everything set in rem
+    // grows the way it does when a person turns text size up on the phone.
+    fontScale: Number(args['font-scale'] || config.fontScale || 1),
   };
 }
 
@@ -245,6 +264,37 @@ async function collectUnreachable(page) {
   });
 }
 
+/**
+ * In-page links that lead nowhere: `href="#pricing"` with no element of that id
+ * (or name). The person taps and nothing happens — a renamed section, a copied
+ * menu. Bare "#" and hash routes ("#/", "#!") are not section links.
+ */
+async function collectBrokenAnchors(page) {
+  return page.evaluate(() => {
+    const out = [];
+    const seen = new Set();
+    for (const a of document.querySelectorAll('a[href^="#"]')) {
+      const href = a.getAttribute('href') || '';
+      if (href === '#' || href.startsWith('#/') || href.startsWith('#!') || seen.has(href)) continue;
+      seen.add(href);
+      let id = href.slice(1);
+      try {
+        id = decodeURIComponent(id);
+      } catch {
+        /* keep the raw fragment */
+      }
+      // "#top" scrolls to the top by the HTML standard even without such an id.
+      if (id.toLowerCase() === 'top') continue;
+      if (document.getElementById(id) || document.getElementsByName(id).length) continue;
+      out.push({
+        href,
+        label: (a.getAttribute('aria-label') || a.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 40) || '(no text)',
+      });
+    }
+    return out.slice(0, 15);
+  });
+}
+
 async function checkHorizontalScroll(page) {
   return page.evaluate(() => ({
     scrollWidth: document.documentElement.scrollWidth,
@@ -292,6 +342,13 @@ async function verifyOne(page, target, breakpoint, config, outDir) {
     if (ignoreConsole.some((pattern) => text.includes(pattern))) return;
     consoleErrors.push(text.slice(0, 200));
   };
+  // An uncaught exception never reaches the console listener in Playwright, and a
+  // production React build reports hydration failures exactly that way.
+  const onPageError = (error) => {
+    const text = `uncaught ${error.name || 'Error'}: ${error.message || error}`;
+    if (ignoreConsole.some((pattern) => text.includes(pattern))) return;
+    consoleErrors.push(text.slice(0, 200));
+  };
   const onFailed = (request) => {
     const url = request.url();
     if (ignoreRequests.some((pattern) => url.includes(pattern))) return;
@@ -299,12 +356,17 @@ async function verifyOne(page, target, breakpoint, config, outDir) {
   };
 
   page.on('console', onConsole);
+  page.on('pageerror', onPageError);
   page.on('requestfailed', onFailed);
 
   await page.setViewportSize({ width: breakpoint.width, height: breakpoint.height });
   // Drives the page into the state under test: a navigation for a URL, or login,
   // mocks and the right screen for a scenario.
   await target.ready(page);
+  if (config.fontScale !== 1) {
+    await page.addStyleTag({ content: `html{font-size:${Math.round(config.fontScale * 100)}% !important}` });
+    await page.waitForTimeout(150);
+  }
 
   const scroll = await checkHorizontalScroll(page);
   if (scroll.scrollWidth > scroll.clientWidth) {
@@ -365,8 +427,20 @@ async function verifyOne(page, target, breakpoint, config, outDir) {
     }
   }
 
+  for (const item of await collectBrokenAnchors(page)) {
+    findings.push({
+      kind: 'broken-anchor',
+      severity: 'flag',
+      detail: `link “${item.label}” points to ${item.href}, but the page has no element with that id`,
+    });
+  }
+
   for (const error of consoleErrors) {
-    findings.push({ kind: 'console-error', severity: 'block', detail: error });
+    if (HYDRATION_PATTERN.test(error)) {
+      findings.push({ kind: 'hydration', severity: 'block', detail: `${HYDRATION_MEANING}: ${error}` });
+    } else {
+      findings.push({ kind: 'console-error', severity: 'block', detail: error });
+    }
   }
   for (const request of failedRequests) {
     findings.push({ kind: 'request-failed', severity: 'block', detail: request });
@@ -374,9 +448,10 @@ async function verifyOne(page, target, breakpoint, config, outDir) {
 
   const slug = String(target.name).replace(/[^\w-]+/g, '_').slice(-40);
   const shot = join(outDir, `${slug}-${breakpoint.name}-${breakpoint.width}.png`);
-  await page.screenshot({ path: shot, fullPage: true });
+  const { preview } = await writeScreenshot(page, shot, { fullPage: true });
 
   page.off('console', onConsole);
+  page.off('pageerror', onPageError);
   page.off('requestfailed', onFailed);
 
   return {
@@ -384,6 +459,7 @@ async function verifyOne(page, target, breakpoint, config, outDir) {
     breakpoint: breakpoint.name,
     width: breakpoint.width,
     screenshot: shot,
+    preview,
     findings,
   };
 }
@@ -396,11 +472,13 @@ async function main() {
 
   const targets = await resolveTargets(args, config.raw);
   const results = [];
+  let engine = null;
 
   for (const target of targets) {
     // A scenario brings up its own environment (mocks, login), so each target gets
     // its own browser: cookies and route handlers must not leak between them.
     const opened = await target.open({ throttle: 1 });
+    engine = engine || engineOf(opened.page);
     try {
       for (const breakpoint of config.breakpoints) {
         results.push(await verifyOne(opened.page, target, breakpoint, config, outDir));
@@ -413,10 +491,30 @@ async function main() {
   const blocking = results.flatMap((r) =>
     r.findings.filter((f) => f.severity === 'block').map((f) => ({ ...f, at: `${r.url} @${r.width}` }))
   );
-  const flags = results.flatMap((r) => r.findings.filter((f) => f.severity === 'flag'));
+  // The same broken link or clipped label shows up at every width: one line each.
+  const seenFlags = new Set();
+  const flags = results
+    .flatMap((r) => r.findings.filter((f) => f.severity === 'flag'))
+    .filter((f) => {
+      const key = `${f.kind}|${f.detail}`;
+      if (seenFlags.has(key)) return false;
+      seenFlags.add(key);
+      return true;
+    });
 
-  console.log(`\nChecked: ${targets.length} target(s) × ${config.breakpoints.length} widths`);
+  console.log(`\nEngine: ${engine ? `${engine.name} ${engine.version}` : 'unknown'}`);
+  console.log(`Checked: ${targets.length} target(s) × ${config.breakpoints.length} widths`);
+  if (config.fontScale !== 1) {
+    console.log(
+      `Font scale: ${Math.round(config.fontScale * 100)}% root size — text set in rem/em grows, text set in px does not`
+    );
+  }
   console.log(`Screenshots: ${outDir}`);
+  const previews = results.filter((r) => r.preview);
+  if (previews.length) {
+    console.log('Too large to read as an image — open the preview instead:');
+    for (const r of previews) console.log(`  ${r.preview}`);
+  }
   console.log(`Blocking: ${blocking.length} | warnings: ${flags.length}\n`);
   for (const finding of blocking) {
     console.log(`  BLOCK [${finding.kind}] ${finding.at}\n         ${finding.detail}`);
