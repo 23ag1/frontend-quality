@@ -46,11 +46,25 @@ const STYLE_PROBE = `(el) => {
  * on the way, the honest answer is "undetermined", not an invented number.
  */
 const CONTRAST_PROBE = `(el) => {
+  // Colour is read as a PIXEL, not by parsing a string. Tailwind v4 and modern
+  // CSS in general return "lab(...)" or "oklch(...)" from getComputedStyle, not
+  // "rgb(...)"; the regex did not understand them, silently treated the
+  // background as "not found" and went looking further up the tree. The report
+  // then carried the contrast of the text against the PAGE background: a white
+  // initial on a grey circle came out as 1.10:1 instead of the real 2.23:1 — an
+  // invented number, even though the verdict happened to be right.
+  const canvas = document.createElement('canvas');
+  canvas.width = 1;
+  canvas.height = 1;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
   const parse = (value) => {
-    const m = String(value).match(/rgba?\\(([^)]+)\\)/);
-    if (!m) return null;
-    const parts = m[1].split(/[ ,\\/]+/).filter(Boolean).map(Number);
-    return { r: parts[0], g: parts[1], b: parts[2], a: parts.length > 3 ? parts[3] : 1 };
+    if (!value || value === 'transparent') return null;
+    if (typeof CSS !== 'undefined' && CSS.supports && !CSS.supports('color', value)) return null;
+    ctx.clearRect(0, 0, 1, 1);
+    ctx.fillStyle = value;
+    ctx.fillRect(0, 0, 1, 1);
+    const [r, g, b, a] = ctx.getImageData(0, 0, 1, 1).data;
+    return { r, g, b, a: a / 255 };
   };
   const mix = (fg, bg) => ({
     r: fg.r * fg.a + bg.r * (1 - fg.a),
@@ -108,12 +122,28 @@ async function collectTargets(page, limit) {
         const s = getComputedStyle(el);
         return s.display !== 'none' && s.visibility !== 'hidden' && parseFloat(s.opacity) > 0;
       };
+      // aria-labelledby and <label> (a wrapper OR for=id) were not read at all:
+      // input[type=checkbox|radio] has no textContent of its own by definition,
+      // so EVERY properly labelled checkbox or radio got a false "no accessible
+      // name". .labels is the standard DOM property of form controls and covers
+      // both markup variants at once.
+      const labelledBy = (el) => {
+        const ids = el.getAttribute('aria-labelledby');
+        if (!ids) return '';
+        return ids.split(/\s+/).map((id) => document.getElementById(id)?.textContent || '').join(' ').trim();
+      };
+      const fromLabels = (el) =>
+        'labels' in el && el.labels && el.labels.length
+          ? Array.from(el.labels).map((l) => l.textContent || '').join(' ').trim()
+          : '';
       const label = (el) =>
         (
           el.getAttribute('aria-label') ||
+          labelledBy(el) ||
           el.getAttribute('title') ||
           el.getAttribute('alt') ||
           (el.textContent || '').trim() ||
+          fromLabels(el) ||
           el.getAttribute('placeholder') ||
           ''
         )
@@ -121,6 +151,9 @@ async function collectTargets(page, limit) {
           .slice(0, 48);
 
       const items = [];
+      // The topmost modal dialog, if one is open.
+      const modals = Array.from(document.querySelectorAll('[role="dialog"][aria-modal="true"], dialog[open]'));
+      const modal = modals.length ? modals[modals.length - 1] : null;
       const nodes = Array.from(document.querySelectorAll(selector)).filter(visible);
       nodes.forEach((el, index) => {
         if (items.length >= limit) return;
@@ -133,6 +166,14 @@ async function collectTargets(page, limit) {
           width: Math.round(r.width),
           height: Math.round(r.height),
           disabled: el.hasAttribute('disabled') || el.getAttribute('aria-disabled') === 'true',
+          // Is there anything to measure contrast on? An icon-only button holds
+          // an <svg>, not text: its color and font-size are inherited, and a
+          // "16px, weight 400" reading describes something that is not on screen.
+          hasText: Boolean((el.textContent || '').trim()),
+          // A modal dialog is open and the element is outside it. Being
+          // unreachable by Tab is the focus trap doing its job, not a defect:
+          // while the dialog is open, focus must not leave it.
+          outsideModal: Boolean(modal) && !modal.contains(el),
         });
       });
       return items;
@@ -169,34 +210,57 @@ async function snapshotResting(page) {
 /**
  * Focus is exercised with a real keyboard: a programmatic focus() does not trigger
  * :focus-visible and would report a false "no focus ring" on every element.
+ *
+ * The walk goes on until every collected target has been focused, or until focus
+ * wraps back to where it started — only then is "not reachable with Tab" a fact.
+ * The previous version stopped after a fixed number of presses, and everything
+ * past that budget was reported as unreachable: on a page with a few dozen links
+ * and inputs that meant blocking findings against perfectly reachable buttons.
  */
-async function walkFocusByKeyboard(page, resting, maxTabs) {
+async function walkFocusByKeyboard(page, resting, targetCount, ceiling) {
   const seen = new Map();
-  await page.evaluate(() => document.body.focus?.());
-  for (let i = 0; i < maxTabs; i += 1) {
+  let wrapped = false;
+  await page.evaluate(() => {
+    document.querySelector('[data-state-tabstart]')?.removeAttribute('data-state-tabstart');
+    document.body.focus?.();
+  });
+  for (let i = 0; i < ceiling; i += 1) {
     await page.keyboard.press('Tab');
     await page.waitForTimeout(60);
     const info = await page.evaluate(
       ({ probeStyle, contrastProbe }) => {
         const el = document.activeElement;
         if (!el || el === document.body) return null;
+        // The first element the walk lands on marks the start of the cycle.
+        // Meeting it again means the tab order is exhausted.
+        const back = el.hasAttribute('data-state-tabstart');
+        if (!back && !document.querySelector('[data-state-tabstart]')) {
+          el.setAttribute('data-state-tabstart', '1');
+        }
         const probe = el.getAttribute('data-state-probe');
-        if (probe === null) return null;
+        if (probe === null) return { back };
         const readStyle = new Function('e', `return (${probeStyle})(e)`);
         const readContrast = new Function('e', `return (${contrastProbe})(e)`);
-        return { probe, style: readStyle(el), contrast: readContrast(el) };
+        return { back, probe, style: readStyle(el), contrast: readContrast(el) };
       },
       { probeStyle: STYLE_PROBE, contrastProbe: CONTRAST_PROBE }
     );
-    if (!info) continue;
-    if (!seen.has(info.probe)) {
+    if (info?.back) {
+      wrapped = true;
+      break;
+    }
+    if (info?.probe !== undefined && !seen.has(info.probe)) {
       seen.set(info.probe, {
         visible: info.style !== resting[info.probe]?.style,
         contrast: info.contrast,
       });
     }
+    if (seen.size >= targetCount) break;
   }
-  return seen;
+  await page.evaluate(() => document.querySelector('[data-state-tabstart]')?.removeAttribute('data-state-tabstart'));
+  // complete: the tab order was walked to the end, so an element that never got
+  // focus really cannot be reached.
+  return { seen, complete: wrapped || seen.size >= targetCount };
 }
 
 async function checkHover(page, target) {
@@ -237,25 +301,33 @@ async function runTarget(target, args) {
 
     const items = await collectTargets(page, limit);
     const resting = await snapshotResting(page);
-    const focusable = await walkFocusByKeyboard(page, resting, Math.min(80, limit * 2));
+    // Ceiling on the number of presses: a page with a runaway tab order must not
+    // hang the check. Reaching it means reachability stays unproven — see complete.
+    const focusable = await walkFocusByKeyboard(page, resting, items.length, 400);
 
     for (const item of items) {
       checked += 1;
       const problems = [];
 
-      const hover = await checkHover(page, item);
-      if (!hover.ok) {
-        problems.push({ severity: 'flag', text: 'element cannot be hovered (covered or off-screen)' });
-      } else if (hover.style === resting[item.probe]?.style && !item.disabled) {
-        problems.push({ severity: 'flag', text: 'no reaction to hover' });
+      // A disabled control has no hover state to show, and the usual
+      // `disabled:pointer-events-none` makes the hover itself time out — the old
+      // "cannot be hovered" was a report about the disabled attribute, not about
+      // the layout.
+      const hover = item.disabled ? { ok: true, style: null, contrast: null } : await checkHover(page, item);
+      if (!item.disabled) {
+        if (!hover.ok) {
+          problems.push({ severity: 'flag', text: 'element cannot be hovered (covered or off-screen)' });
+        } else if (hover.style === resting[item.probe]?.style) {
+          problems.push({ severity: 'flag', text: 'no reaction to hover' });
+        }
       }
 
-      const focus = focusable.get(item.probe);
+      const focus = focusable.seen.get(item.probe);
       if (focus) {
         if (!focus.visible) {
           problems.push({ severity: 'block', text: 'focus is invisible: the keyboard user cannot tell where they are' });
         }
-      } else if (!item.disabled) {
+      } else if (!item.disabled && focusable.complete && !item.outsideModal) {
         problems.push({ severity: 'block', text: 'not reachable with Tab' });
       }
 
@@ -270,15 +342,26 @@ async function runTarget(target, args) {
       }
 
       // Contrast in every state: rest, hover, focus.
-      for (const [name, contrast] of [
-        ['rest', resting[item.probe]?.contrast],
-        ['hover', hover.contrast],
-        ['focus', focus?.contrast],
-      ]) {
+      //
+      // Two exemptions, and both are about measuring something that is not there:
+      //   * a disabled control — WCAG 1.4.3 exempts it outright, and its muted
+      //     look is the point, not a defect;
+      //   * an element with no text — an icon button carries an <svg>, and the
+      //     numbers reported for it (colour, size, weight) are inherited values
+      //     describing nothing on the screen. Icon contrast is a separate rule
+      //     (WCAG 1.4.11, 3:1 against the fill) and needs its own check.
+      const contrastApplies = !item.disabled && item.hasText;
+      for (const [name, contrast] of contrastApplies
+        ? [
+            ['rest', resting[item.probe]?.contrast],
+            ['hover', hover.contrast],
+            ['focus', focus?.contrast],
+          ]
+        : []) {
         const problem = contrastProblem(name, contrast);
-        if (problem) problems.push({ severity: item.disabled ? 'flag' : 'block', text: problem });
+        if (problem) problems.push({ severity: 'block', text: problem });
       }
-      if (resting[item.probe]?.contrast?.unknown) {
+      if (contrastApplies && resting[item.probe]?.contrast?.unknown) {
         problems.push({
           severity: 'flag',
           text: `contrast not measured: ${resting[item.probe].contrast.unknown} — verify by eye`,

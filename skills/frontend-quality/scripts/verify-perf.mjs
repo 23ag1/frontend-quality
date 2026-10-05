@@ -250,8 +250,12 @@ async function measureIdle(page, cdp, ms = 3000) {
       window.__idleStop = true;
       const loaf = (window.__perf?.loaf || []).filter((f) => f.startTime >= since);
       const skeletons = document.querySelectorAll(
-        // Everyone names these differently, so match by meaning, not one class.
-        '[aria-busy="true"], .animate-pulse, [class*="skeleton" i], [class*="shimmer" i], [class*="placeholder" i], [data-skeleton], [data-loading]'
+        // Everyone names these differently, so match by meaning, not one class —
+        // except "placeholder": that word is Tailwind's own utility prefix for
+        // styling an input's placeholder TEXT COLOR (placeholder-gray-400 and
+        // friends), unrelated to loading skeletons. Matching it flagged any
+        // styled search input as a stuck skeleton on every page (f2m_waiter-nkcb).
+        '[aria-busy="true"], .animate-pulse, [class*="skeleton" i], [class*="shimmer" i], [data-skeleton], [data-loading]'
       ).length;
       const spinners = document.querySelectorAll('[role="progressbar"], .animate-spin').length;
       return {

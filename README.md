@@ -78,6 +78,19 @@ verbatim. In short:
 Every browser check accepts `--scenario` — a module that brings the environment
 up and drives the app into the state worth checking.
 
+## Checking the plugin itself
+
+A check that cries wolf is worse than a missing one: two false findings out of
+three teach everyone to stop opening the report. `tests/states/` holds a page
+with the cases that used to be reported falsely — a disabled icon button, a
+disabled text button, an enabled icon button — standing next to two real defects
+that must keep being reported.
+
+```bash
+cd skills/frontend-quality && npm install   # once: playwright
+node tests/states/run.mjs
+```
+
 ## Limits
 
 - A headless browser on a server is not a real device: no thermal throttling, a

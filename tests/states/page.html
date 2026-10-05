@@ -1,0 +1,45 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>States check fixture</title>
+<style>
+  body { font: 16px/1.4 system-ui; background: #fff; color: #111; padding: 24px; }
+  button { font: inherit; padding: 14px 18px; border: 1px solid #ccc; background: #f4f4f4; border-radius: 8px; }
+  button:disabled { opacity: .3; pointer-events: none; }
+  .pale { color: #cfcfcf; background: #fff; }
+  .filler a { display: inline-block; margin: 2px 6px; }
+</style>
+
+<h1>Fixture</h1>
+
+<!-- 1. Disabled icon-only button: no text, no hover. -->
+<button id="icon-off" disabled aria-label="Erase">
+  <svg width="20" height="20" viewBox="0 0 20 20"><path d="M4 4h12v12H4z" fill="#999"/></svg>
+</button>
+
+<!-- 2. Disabled text button with low contrast. -->
+<button id="text-off" class="pale" disabled>Sign in</button>
+
+<!-- 3. Enabled icon-only button — there is no text contrast to measure. -->
+<button id="icon-on" class="pale" aria-label="Refresh">
+  <svg width="20" height="20" viewBox="0 0 20 20"><circle cx="10" cy="10" r="8" fill="#333"/></svg>
+</button>
+
+<!-- 4. A REAL defect: an enabled button with unreadable text. -->
+<button id="text-on" class="pale">Continue</button>
+
+<!-- 5. A REAL defect: Tab never reaches this button. -->
+<button id="no-tab" tabindex="-1">Unreachable</button>
+
+<!-- 6. A long tab order: the button sits below sixty links. -->
+<p class="filler" id="filler"></p>
+<button id="far">Far button</button>
+
+<script>
+  const filler = document.getElementById("filler");
+  for (let i = 1; i <= 60; i += 1) {
+    const a = document.createElement("a");
+    a.href = "#";
+    a.textContent = "link " + i;
+    filler.append(a);
+  }
+</script>
