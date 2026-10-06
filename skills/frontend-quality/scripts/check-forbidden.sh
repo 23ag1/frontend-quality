@@ -73,7 +73,11 @@ print_group() {
   echo ""
   echo "$severity — $title ($count)"
   [ -n "$why" ] && echo "  why: $why"
-  printf '%s\n' "$hits" | grep . | head -"$limit" | cut -c1-160 | sed 's/^/  /'
+  # Trim the source text, never the location: a cut over the whole line lost the
+  # very part that says what is wrong as soon as the project path was long.
+  printf '%s\n' "$hits" | grep . | head -"$limit" \
+    | awk '{ if (match($0, /^[^:]+:[0-9]+:/)) { loc = substr($0, 1, RLENGTH); txt = substr($0, RLENGTH + 1) } else { loc = ""; txt = $0 }
+             sub(/^[ \t]+/, "", txt); if (length(txt) > 140) txt = substr(txt, 1, 140) "…"; print "  " loc " " txt }'
   [ "$count" -gt "$limit" ] && echo "  … and $((count - limit)) more"
   if [ "$severity" = "BLOCK" ]; then
     VIOLATIONS=$((VIOLATIONS + count))
